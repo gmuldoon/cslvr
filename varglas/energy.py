@@ -123,6 +123,7 @@ class Enthalpy(Energy):
     eps_reg       = model.eps_reg
     T             = model.T
     T_melt        = model.T_melt
+    theta_melt    = model.theta_melt
     Mb            = model.Mb
     L             = model.L
     T_w           = model.T_w
@@ -190,8 +191,8 @@ class Enthalpy(Energy):
 
     # initialize the boundary conditions :
     model.init_theta_surface(theta_s, cls=self)
-    model.init_theta_app(theta_s, cls=self)
-    model.init_theta_float(theta_f, cls=self)
+    model.init_theta_app(theta_s,     cls=self)
+    model.init_theta_float(theta_f,   cls=self)
 
     # thermal conductivity and heat capacity (Greve and Blatter 2009) :
     ki    = 9.828 * exp(-0.0057*T)
@@ -204,13 +205,18 @@ class Enthalpy(Energy):
     kappa =  k / (rho*c)             # bulk thermal diffusivity
 
     # coefficient for diffusion of ice-water mixture -- no water diffusion :
-    k_c   = conditional( lt(T, T_w), 1.0, 0.0)
+    k_c   = conditional( lt(theta, theta_melt), 1.0, 0.0)
 
     # frictional heating :
     q_fric = beta * inner(U,U)
 
     # Strain heating = stress*strain
     epsdot  = self.effective_strain_rate(U)
+    T_c     = 263.15
+    #theta_c = 146.3*T_c + 7.253/2.0*T_c**2
+    #a_T     = conditional( lt(theta, theta_c), 1.1384496e-5, 5.45e10)
+    #Q_T     = conditional( lt(theta, theta_c), 6e4,          13.9e4)
+    #W_T     = conditional( lt(W,     0.01),    W,            0.01)
     a_T     = conditional( lt(T, 263.15), 1.1384496e-5, 5.45e10)
     Q_T     = conditional( lt(T, 263.15), 6e4,          13.9e4)
     W_T     = conditional( lt(W, 0.01),   W,            0.01)
@@ -222,7 +228,7 @@ class Enthalpy(Energy):
     Q_s_shf = 4 * eta_shf * epsdot
 
     # basal heat-flux natural boundary condition :
-    g_b = conditional( gt(W, 1.0), 0.0, q_geo + q_fric )
+    g_b = conditional( gt(theta, theta_melt), 0.0, q_geo + q_fric )
 
     # configure the module to run in steady state :
     if not transient:
@@ -255,9 +261,9 @@ class Enthalpy(Energy):
       #theta_L = rhs(F)
 
       # galerkin formulation :
-      theta_a = + rho * dot(U, grad(dtheta)) * psihat * dx \
-                - spy * dot(grad(k/c), grad(dtheta)) * psi * dx \
-                + spy * k/c * dot(grad(psi), grad(dtheta)) * dx \
+      theta_a = + rho * dot(U, grad(theta)) * psihat * dx \
+                - spy * dot(grad(k/c), grad(theta)) * psi * dx \
+                + spy * k/c * dot(grad(psi), grad(theta)) * dx \
       
       theta_L = + g_b * psi * dBed_g \
                 + Q_s_gnd * psi * dx_g \
@@ -292,30 +298,33 @@ class Enthalpy(Energy):
 
     self.theta_a = theta_a
     self.theta_L = theta_L
+
+    self.nrg_F   = theta_a - theta_L
+    self.nrg_Jac = derivative(self.nrg_F, theta, dtheta)
     
     # surface boundary condition : 
-    self.theta_bc = []
-    self.theta_bc.append( DirichletBC(Q, theta_surface, 
-                                      model.ff, model.GAMMA_S_GND) )
-    self.theta_bc.append( DirichletBC(Q, theta_surface,
-                                      model.ff, model.GAMMA_S_FLT) )
-    self.theta_bc.append( DirichletBC(Q, theta_surface, 
-                                      model.ff, model.GAMMA_U_GND) )
-    self.theta_bc.append( DirichletBC(Q, theta_surface,
-                                      model.ff, model.GAMMA_U_FLT) )
+    self.nrg_bc = []
+    self.nrg_bc.append( DirichletBC(Q, theta_surface, 
+                                    model.ff, model.GAMMA_S_GND) )
+    self.nrg_bc.append( DirichletBC(Q, theta_surface,
+                                    model.ff, model.GAMMA_S_FLT) )
+    self.nrg_bc.append( DirichletBC(Q, theta_surface, 
+                                    model.ff, model.GAMMA_U_GND) )
+    self.nrg_bc.append( DirichletBC(Q, theta_surface,
+                                    model.ff, model.GAMMA_U_FLT) )
     
     # apply T_melt conditions of portion of ice in contact with water :
-    self.theta_bc.append( DirichletBC(Q, theta_float, 
-                                      model.ff, model.GAMMA_B_FLT) )
-    self.theta_bc.append( DirichletBC(Q, theta_float, 
-                                      model.ff, model.GAMMA_L_UDR) )
+    self.nrg_bc.append( DirichletBC(Q, theta_float, 
+                                    model.ff, model.GAMMA_B_FLT) )
+    self.nrg_bc.append( DirichletBC(Q, theta_float, 
+                                    model.ff, model.GAMMA_L_UDR) )
     
     # apply lateral ``divide'' boundaries if desired : 
     if use_lat_bc:
       s = "    - using divide-lateral boundary conditions -"
       print_text(s, cls=self)
-      self.theta_bc.append( DirichletBC(Q, model.theta_app,
-                                        model.ff, model.GAMMA_L_DVD) )
+      self.nrg_bc.append( DirichletBC(Q, model.theta_app,
+                                      model.ff, model.GAMMA_L_DVD) )
     
     # always mark the divide (if present) essential :
     #self.theta_bc.append( DirichletBC(Q, theta_surface,
@@ -513,24 +522,24 @@ class Enthalpy(Energy):
     #  #theta_a += rho * w * dtheta.dx(2) * psi_w * dx \
     
     # surface boundary condition : 
-    theta_bc = []
-    theta_bc.append( DirichletBC(model.Q, theta_s,
-                                 model.ff, model.GAMMA_S_GND) )
-    theta_bc.append( DirichletBC(model.Q, theta_s,
-                                 model.ff, model.GAMMA_S_FLT) )
-    theta_bc.append( DirichletBC(model.Q, theta_s,
-                                 model.ff, model.GAMMA_U_GND) )
-    theta_bc.append( DirichletBC(model.Q, theta_s,
-                                 model.ff, model.GAMMA_U_FLT) )
+    nrg_bc = []
+    nrg_bc.append( DirichletBC(model.Q, theta_s,
+                               model.ff, model.GAMMA_S_GND) )
+    nrg_bc.append( DirichletBC(model.Q, theta_s,
+                               model.ff, model.GAMMA_S_FLT) )
+    nrg_bc.append( DirichletBC(model.Q, theta_s,
+                               model.ff, model.GAMMA_U_GND) )
+    nrg_bc.append( DirichletBC(model.Q, theta_s,
+                               model.ff, model.GAMMA_U_FLT) )
     
     # apply T_w conditions of portion of ice in contact with water :
-    theta_bc.append( DirichletBC(model.Q, theta_f,
-                                 model.ff, model.GAMMA_B_FLT) )
-    theta_bc.append( DirichletBC(model.Q, theta_f, 
-                                 model.ff, model.GAMMA_L_UDR) )
+    nrg_bc.append( DirichletBC(model.Q, theta_f,
+                               model.ff, model.GAMMA_B_FLT) )
+    nrg_bc.append( DirichletBC(model.Q, theta_f, 
+                               model.ff, model.GAMMA_L_UDR) )
    
     # solve the system :
-    solve(theta_a == theta_L, theta, theta_bc, annotate=annotate)
+    solve(theta_a == theta_L, theta, nrg_bc, annotate=annotate)
     model.assign_variable(model.theta_app, theta, cls=self)
 
     if init:
@@ -587,15 +596,23 @@ class Enthalpy(Energy):
     # solve the linear equation for energy :
     s    = "::: solving energy :::"
     print_text(s, cls=self)
-    aw        = assemble(self.theta_a, annotate=annotate)
-    Lw        = assemble(self.theta_L, annotate=annotate)
-    for bc in self.theta_bc:
-      bc.apply(aw, Lw)
-    theta_solver = LUSolver(self.solve_params['solver'])
-    theta_solver.solve(aw, theta.vector(), Lw, annotate=annotate)
-    #solve(self.theta_a == self.theta_L, theta, self.theta_bc,
-    #      solver_parameters = {"linear_solver" : sm}, annotate=False)
-    model.assign_variable(model.theta, theta, cls=self)
+    #aw        = assemble(self.theta_a, annotate=annotate)
+    #Lw        = assemble(self.theta_L, annotate=annotate)
+    #for bc in self.theta_bc:
+    #  bc.apply(aw, Lw)
+    #theta_solver = LUSolver(self.solve_params['solver'])
+    #theta_solver.solve(aw, theta.vector(), Lw, annotate=annotate)
+    ##solve(self.theta_a == self.theta_L, theta, self.theta_bc,
+    ##      solver_parameters = {"linear_solver" : sm}, annotate=False)
+    #model.assign_variable(model.theta, theta, cls=self)
+    nparams = {'newton_solver' : {'linear_solver'            : 'mumps',
+                                  'relative_tolerance'       : 1e-9,
+                                  'relaxation_parameter'     : 0.3,
+                                  'maximum_iterations'       : 25,
+                                  'error_on_nonconvergence'  : False}}
+    solve(self.nrg_F == 0, self.theta, J = self.nrg_Jac, bcs = self.nrg_bc,
+          annotate = annotate, solver_parameters = nparams)
+    model.assign_variable(model.theta, self.theta, cls=self)
 
     if self.transient:
       self.theta0.assign(self.theta)
