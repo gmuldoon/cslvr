@@ -1,3 +1,8 @@
+import timeit
+import sys
+start=timeit.default_timer()
+
+
 from cslvr            import *
 from scipy            import random
 from fenics           import *
@@ -95,11 +100,13 @@ mom.linearize_viscosity()
 # optimize for beta :
 mom.optimize_U_ob(control           = model.beta,
                   bounds            = (1e-5, 1e7),
-                  method            = 'ipopt',
+                  method            = 'l_bfgs_b',
                   max_iter          = 20,
                   adj_save_vars     = adj_save_vars,
                   adj_callback      = deriv_cb,
                   post_adj_callback = adj_post_cb_ftn)
 
-
+elapsed=timeit.default_timer() - start
+elapsed=elapsed/60.
+print 'It took %f seconds to run %s' % (elapsed, sys.argv[0])
 

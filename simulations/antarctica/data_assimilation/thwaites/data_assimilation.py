@@ -1,9 +1,11 @@
-from varglas          import *
+from cslvr            import *
 from scipy            import random
 from fenics           import *
 from dolfin_adjoint   import *
 import sys
+import timeit
 
+start=timeit.default_timer()
 
 # set the relavent directories :
 var_dir = 'dump/vars_thwaites_basin/'    # directory from gen_vars.py
@@ -261,5 +263,7 @@ if d3model.MPI_rank==0:
   savetxt(d + 'J2s.txt',  array(J2s))
   savetxt(d + 'Ms.txt',   array(Ms))
 
-
+elapsed=timeit.default_time()-start
+elapsed=elapsed=60.
+print 'It took %f minutes to run %s' % (elapsed, sys.argv[0])
 

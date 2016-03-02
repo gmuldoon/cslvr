@@ -1,4 +1,7 @@
-from varglas import *
+from cslvr import *
+import timeit
+import sys
+start=timeit.default_timer()
 
 # set the output directory :
 in_dir  = 'dump/vars_thwaites_basin/'
@@ -13,7 +16,9 @@ model.init_lat_mask(f)
 
 # automatically saved with save_state=True to f
 bedmesh = model.get_bed_mesh()
-srfmesh = model.get_surface_mesh()
-dvdmesh = model.get_divide_mesh()
+srfmesh = model.get_srf_mesh()
+dvdmesh = model.get_dvd_mesh()
 
-
+elapsed=timeit.default_timer()-start
+elapsed=elapsed/60.
+print 'It took %f minutes to run %s' % (elapsed,sys.argv[0])

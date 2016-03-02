@@ -1,4 +1,4 @@
-from cslver   import HybridModel, MomentumHybrid
+from cslvr   import HybridModel, MomentumHybrid
 from fenics   import Point, RectangleMesh, Expression, sqrt, pi
 
 alpha = 0.5 * pi / 180 

@@ -1,3 +1,7 @@
+import timeit
+import sys
+start=timeit.default_timer()
+
 from cslvr    import *
 from fenics   import Point, BoxMesh, Expression, sqrt, pi
 
@@ -35,6 +39,11 @@ mom.solve()
 model.save_pvd(model.p,  'p')
 model.save_pvd(model.U3, 'U')
 
+
+
+elapsed=timeit.default_timer() - start
+elapsed=elapsed/60.
+print 'It took %f seconds to run %s' % (elapsed, sys.argv[0])
 
 
 
