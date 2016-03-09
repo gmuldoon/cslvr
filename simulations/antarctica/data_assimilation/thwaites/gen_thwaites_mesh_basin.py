@@ -1,10 +1,6 @@
 from cslvr             import *
 from pylab             import *
 from scipy.interpolate import RectBivariateSpline
-import timeit
-import sys
-start=timeit.default_timer()
-
 
 #===============================================================================
 # data preparation :
@@ -101,8 +97,4 @@ ref_bm.set_background_field(aid)
 # finish stuff up :
 ref_bm.finish(gui = False, out_file_name = out_dir + mesh_name)
 ref_bm.convert_msh_to_xml()
-
-elapsed=timeit.default_timer() - start
-elapsed=elapsed/60.
-print 'It took %f minutes to run %s' % (elapsed, sys.argv[0])
 

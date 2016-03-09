@@ -1,8 +1,5 @@
 from cslvr import *
 from fenics  import *
-import timeit
-import sys
-start=timeit.default_timer()
 
 out_dir  = 'dump/vars_thwaites_basin/'
 thklim   = 1.0
@@ -39,8 +36,4 @@ model.init_U_ob(u_ob, v_ob)
 model.save_xdmf(model.ff,   'ff')
 model.save_xdmf(model.U_ob, 'U_ob')
 model.state.close()
-
-elapsed=timeit.default_timer() - start
-elapsed=elapsed/60.
-print 'It took %f minutes to run %s' % (elapsed, sys.argv[0])
 
