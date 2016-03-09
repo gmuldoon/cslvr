@@ -654,6 +654,7 @@ class MeshRefiner(object):
     cmd = 'dolfin-convert ' + msh + ' ' + xml
     s   = "\nExecuting :\n\n\t %s\n\n" % cmd
     print_text(s, self.color)
+    gc.collect()
     subprocess.call(cmd.split())
     
     cmd = 'gzip -f ' + xml

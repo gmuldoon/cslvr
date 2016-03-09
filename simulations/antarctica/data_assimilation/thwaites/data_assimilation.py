@@ -4,9 +4,6 @@ from fenics           import *
 from dolfin_adjoint   import *
 
 
-
-
-
 # set the relavent directories :
 var_dir = 'dump/vars_thwaites_basin/'    # directory from gen_vars.py
 out_dir = 'dump/thwaites_basin/'         # base directory to save
@@ -262,3 +259,4 @@ if d3model.MPI_rank==0:
   savetxt(d + 'J1s.txt',  array(J1s))
   savetxt(d + 'J2s.txt',  array(J2s))
   savetxt(d + 'Ms.txt',   array(Ms))
+

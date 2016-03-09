@@ -24,7 +24,8 @@ u_ob  = dm.get_expression("vx",       near=False)
 v_ob  = dm.get_expression("vy",       near=False)
 U_msk = dm.get_expression("mask",     near=True)
 
-model = D3Model(mesh=mesh, out_dir=out_dir, save_state=True)
+#model = D3Model(mesh=mesh, out_dir=out_dir, save_state=True)
+model = D3Model(mesh=mesh, out_dir=out_dir)
 model.deform_mesh_to_geometry(S, B)
 model.calculate_boundaries(mask=M, lat_mask=L, U_mask=U_msk, adot=adot, 
                            mark_divide=True)
@@ -35,5 +36,13 @@ model.init_U_ob(u_ob, v_ob)
 
 model.save_xdmf(model.ff,   'ff')
 model.save_xdmf(model.U_ob, 'U_ob')
+
+
 model.state.close()
+
+
+
+
+
+
 

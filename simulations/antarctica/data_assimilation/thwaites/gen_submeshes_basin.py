@@ -1,8 +1,6 @@
 from cslvr import *
 
 
-
-
 # set the output directory :
 in_dir  = 'dump/vars_thwaites_basin/'
 out_dir = in_dir
