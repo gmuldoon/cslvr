@@ -284,19 +284,6 @@ class Model(object):
     Tp_v[Tp_v > self.T_w(0)] = self.T_w(0)
     self.init_Tp(Tp_v, cls=cls)
     
-    # correct for the pressure-melting point :
-    T_melt_v     = self.T_melt.vector().array()
-    theta_melt_v = self.theta_melt.vector().array()
-    warm         = theta_v >= theta_melt_v
-    cold         = theta_v <  theta_melt_v
-    T_v[warm]    = T_melt_v[warm]
-    self.init_T(T_v, cls=cls)
-    
-    # water content solved diagnostically :
-    W_v             = (theta_v - theta_melt_v) / self.L(0)
-    W_v[W_v < 0.0]  = 0.0    # no water where frozen, please.
-    self.init_W(W_v, cls=cls)
-  
   def init_theta_app(self, theta_app, cls=None):
     """
     """
@@ -1789,10 +1776,10 @@ class Model(object):
     ## convert to pseudo-timestepping for smooth convergence : 
     #energy.make_transient(time_step = 25.0)
 
-    # get the bounds, the max will be updated based on areas of refreeze :
-    bounds = wop_kwargs['bounds']
-    if bounds[1] > 1.0:
-      self.init_alpha_min(bounds[0], cls=self.this)
+    ## get the bounds, the max will be updated based on areas of refreeze :
+    #bounds = wop_kwargs['bounds']
+    #if bounds[1] > 1.0:
+    #  self.init_alpha_min(bounds[0], cls=self.this)
 
     # L_2 erro norm between iterations :
     abs_error = np.inf
@@ -1824,19 +1811,6 @@ class Model(object):
       # first update pressure-melting point :
       energy.calc_T_melt(annotate=False)
       energy.solve_basal_melt_rate()
-
-      # update bounds to constrain areas of refreeze :
-      if bounds[1] > 1.0:
-        s    = '::: resetting max bound on alpha from Mb :::'
-        print_text(s, cls=self.this)
-        Mb_v     = self.Mb.vector().array()
-        am       = self.alpha_max.vector().array()
-        rfrz     = Mb_v <  0.0
-        melt     = Mb_v >= 0.0
-        am[rfrz] = 1.0
-        am[melt] = bounds[1]
-        self.init_alpha_max(am, cls=self.this)
-        wop_kwargs['bounds'] = (self.alpha_min, self.alpha_max)
 
       # solve energy (temperature, water content) :
       energy.optimize_water_flux(**wop_kwargs)
@@ -1989,7 +1963,7 @@ class Model(object):
     # perform initialization step if desired :
     if initialize:
       s    = '    - performing initialization step -'
-      print_text(s % iterations, cls=self.this)
+      print_text(s, cls=self.this)
 
       # set the initialization output directory :
       out_dir_n = 'initialization/'
@@ -2079,7 +2053,8 @@ class Model(object):
     print_text(text % (h,m,s) , 'red', 1)
 
   def L_curve(self, alphas, physics, control, int_domain, adj_ftn, adj_kwargs,
-              reg_kind='Tikhonov', pre_callback=None, post_callback=None):
+              reg_kind='Tikhonov', pre_callback=None, post_callback=None,
+              itr_save_vars=None):
     """
     """
     s    = '::: starting L-curve procedure :::'
@@ -2136,6 +2111,16 @@ class Model(object):
         s    = '::: calling L_curve() post-adjoint post_callback() :::'
         print_text(s, cls=self.this)
         post_callback()
+      
+      # save state to unique hdf5 file :
+      if isinstance(itr_save_vars, list):
+        s    = '::: saving variables in list arg itr_save_vars :::'
+        print_text(s, cls=self.this)
+        out_file = self.out_dir + 'lcurve.h5'
+        foutput  = HDF5File(mpi_comm_world(), out_file, 'w')
+        for var in itr_save_vars:
+          self.save_hdf5(var, f=foutput)
+        foutput.close()
     
     s    = '::: L-curve procedure complete :::'
     print_text(s, cls=self.this)

@@ -165,9 +165,9 @@ class Energy(Physics):
 
     model.init_adot(adot, cls=self)
   
-  def form_obj_ftn(self, kind='abs'):
+  def form_cost_ftn(self, kind='abs'):
     """
-    Forms and returns an objective functional for use with adjoint.
+    Forms and returns a cost functional for use with adjoint.
     Saves to self.J.
     """
     s   = "::: forming water-optimization cost functional :::"
@@ -184,15 +184,15 @@ class Energy(Physics):
     if kind == 'TV': 
       self.J   = sqrt((theta  - theta_c)**2 + 1e-15) * dGnd
       self.Jp  = sqrt((thetam - theta_c)**2 + 1e-15) * dGnd
-      s   = "::: forming TV objective functional :::"
+      s   = "    - using TV cost functional :::"
     elif kind == 'L2': 
       self.J   = 0.5 * (theta  - theta_c)**2 * dGnd
       self.Jp  = 0.5 * (thetam - theta_c)**2 * dGnd
-      s   = "::: forming L2 objective functional :::"
+      s   = "    - using L2 cost functional :::"
     elif kind == 'abs': 
       self.J   = abs(theta  - theta_c) * dGnd
       self.Jp  = abs(thetam - theta_c) * dGnd
-      s   = "::: forming absolute value objective functional :::"
+      s   = "    - using absolute value objective functional :::"
     else:
       s = ">>> ADJOINT OBJECTIVE FUNCTIONAL MAY BE 'TV', 'L2' " + \
           "or 'abs', NOT '%s' <<<" % kind
@@ -477,15 +477,19 @@ class Energy(Physics):
       plt.savefig(d + 'J.png', dpi=200)
       plt.close(fig)
 
-      fig = plt.figure()
-      ax  = fig.add_subplot(111)
-      ax.set_yscale('log')
-      ax.set_ylabel(r'$\mathscr{R}\left(\alpha\right)$')
-      ax.set_xlabel(r'iteration')
-      ax.plot(np.array(Rs), 'r-', lw=2.0)
-      plt.grid()
-      plt.savefig(d + 'R.png', dpi=200)
-      plt.close(fig)
+      try:
+        R = self.R
+        fig = plt.figure()
+        ax  = fig.add_subplot(111)
+        ax.set_yscale('log')
+        ax.set_ylabel(r'$\mathscr{R}\left(\alpha\right)$')
+        ax.set_xlabel(r'iteration')
+        ax.plot(np.array(Rs), 'r-', lw=2.0)
+        plt.grid()
+        plt.savefig(d + 'R.png', dpi=200)
+        plt.close(fig)
+      except AttributeError:
+        pass
 
       fig = plt.figure()
       ax  = fig.add_subplot(111)
@@ -617,14 +621,14 @@ class Enthalpy(Energy):
       theta_s = 146.3*T_s_v + 7.253/2.0*T_s_v**2
       theta_f = 146.3*T_m_v + 7.253/2.0*T_m_v**2
     
-    # Surface boundary condition :
-    s = "::: calculating energy boundary conditions :::"
-    print_text(s, cls=self)
+      # Surface boundary condition :
+      s = "::: calculating energy boundary conditions :::"
+      print_text(s, cls=self)
 
-    # initialize the boundary conditions :
-    model.init_theta_surface(theta_s, cls=self)
-    model.init_theta_app(theta_s,     cls=self)
-    model.init_theta_float(theta_f,   cls=self)
+      # initialize the boundary conditions :
+      model.init_theta_surface(theta_s, cls=self)
+      model.init_theta_app(theta_s,     cls=self)
+      model.init_theta_float(theta_f,   cls=self)
       
     # strain-rate :
     epsdot  = self.effective_strain_rate(U) + eps_reg
@@ -648,13 +652,13 @@ class Enthalpy(Energy):
     #W_T     = conditional( lt(W_t, 0.00), 0.0,        W_t)
 
     # viscosity and strain-heating :
-    Tp       = T + gamma*p
     #b_shf   = ( E_shf*a_T*(1 + 181.25*W_c*W_T)*exp(-Q_T/(R*Tp)) )**(-1/n)
     #b_gnd   = ( E_gnd*a_T*(1 + 181.25*W_c*W_T)*exp(-Q_T/(R*Tp)) )**(-1/n)
     #eta_shf = 0.5 * b_shf * epsdot**((1-n)/(2*n))
     #eta_gnd = 0.5 * b_gnd * epsdot**((1-n)/(2*n))
     #Q_s_gnd = 4 * eta_gnd * epsdot
     #Q_s_shf = 4 * eta_shf * epsdot
+    Tp      = T + gamma*p
     b_shf   = ( E_shf*a_T*(1 + 181.25*W_T)*exp(-Q_T/(R*Tp)) )**(-1/n)
     b_gnd   = ( E_gnd*a_T*(1 + 181.25*W_T)*exp(-Q_T/(R*Tp)) )**(-1/n)
     eta_shf = 0.5 * b_shf * epsdot**((1-n)/(2*n))
@@ -801,6 +805,7 @@ class Enthalpy(Energy):
     self.Q_s_gnd = Q_s_gnd
     self.Q_s_shf = Q_s_shf
     self.Mb      = Mb
+    self.ki      = ki
   
   def default_strain_rate_tensor(self, U):
     """
@@ -926,27 +931,43 @@ class Enthalpy(Energy):
     dBed_g   = model.dBed_g
     T_melt   = model.T_melt
     T        = model.T
-    Mb       = self.Mb
+    N        = model.N
+    L        = model.L(0)
+    rhoi     = model.rhoi(0)
+    rhow     = model.rhow(0)
+    ki       = self.ki
+    u,v,w    = model.U3.split(True)
 
     # Mb is only valid on basal surface, needs extra matrix care :
     phi  = TestFunction(model.Q)
     du   = TrialFunction(model.Q)
     a_n  = du * phi * dBed_g
-    L_n  = Mb * phi * dBed_g
+    L_n  = ki * dot((grad(T_melt)), N) * phi * dBed_g
    
     A_n  = assemble(a_n, keep_diagonal=True, annotate=False)
     B_n  = assemble(L_n, annotate=False)
     A_n.ident_zeros()
    
-    Mb_n  = Function(model.Q)
-    solve(A_n, Mb_n.vector(), B_n, 'cg', 'amg', annotate=False)
+    grad_n  = Function(model.Q)
+    solve(A_n, grad_n.vector(), B_n, 'cg', 'amg', annotate=False)
     
-    Mb_v     = Mb_n.vector().array()
+    W_v      = model.W.vector().array()
+    beta_v   = model.beta.vector().array()
+    u_v      = u.vector().array()
+    v_v      = v.vector().array()
+    w_v      = w.vector().array()
+    q_geo_v  = model.q_geo.vector().array()
+    grad_n_v = grad_n.vector().array()
+
+    q_fric_v = beta_v * (u_v**2 + v_v**2 + w_v**2)
+    rho_v    = W_v*rhow + (1 - W_v)*rhoi
+    Mb_v     = (q_geo_v + q_fric_v - grad_n_v) / (L * rho_v)
+    
+    T_v      = model.T.vector().array()
     T_melt_v = T_melt.vector().array()
-    T_v      = T.vector().array()
     Mb_v[T_v < T_melt_v] = 0.0    # if frozen, no melt
     #Mb_v[model.shf_dofs] = 0.0    # does apply over floating regions
-    model.assign_variable(model.Mb, Mb_v, cls=self)
+    model.init_Mb(Mb_v, cls=self)
 
   def solve_basal_water_flux(self):
     """
@@ -957,32 +978,29 @@ class Enthalpy(Energy):
     print_text(s, cls=self)
     
     model    = self.model
-    alpha    = model.alpha
-    dBed_g   = model.dBed_g
-    g        = self.g
+    rhoi     = model.rhoi(0)
+    rhow     = model.rhow(0)
+    L        = model.L(0)
+    u,v,w    = model.U3.split(True)
 
-    # Mb is only valid on basal surface, needs extra matrix care :
-    phi  = TestFunction(model.Q)
-    du   = TrialFunction(model.Q)
-    a_n  = du * phi * dBed_g
-    L_n  = alpha*g * phi * dBed_g
+    W_v      = model.W.vector().array()
+    beta_v   = model.beta.vector().array()
+    alpha_v  = model.alpha.vector().array()
+    u_v      = u.vector().array()
+    v_v      = v.vector().array()
+    w_v      = w.vector().array()
+    q_geo_v  = model.q_geo.vector().array()
+
+    q_fric_v = beta_v * (u_v**2 + v_v**2 + w_v**2)
+    rho_v    = W_v*rhow + (1 - W_v)*rhoi
+    Fb_v     = alpha_v * (q_geo_v + q_fric_v) / (L * rho_v)
    
-    A_n  = assemble(a_n, keep_diagonal=True, annotate=False)
-    B_n  = assemble(L_n, annotate=False)
-    A_n.ident_zeros()
-   
-    Fb_n  = Function(model.Q)
-    solve(A_n, Fb_n.vector(), B_n, 'cg', 'amg', annotate=False)
-    
-    model.assign_variable(model.Fb, Fb_n, cls=self)
+    # remove areas with positive water flux where there is no melt : 
+    T_melt_v             = model.T_melt.vector().array()
+    T_v                  = model.T.vector().array()
+    Fb_v[T_v < T_melt_v] = 0.0
+    model.init_Fb(Fb_v, cls=self)
 
-    #Mb       = model.Mb
-
-    #Mb_v     = Mb.vector().array()
-    #alpha_v  = alpha.vector().array()
-    #wb_v     = alpha_v * Mb_v
-    #model.init_Wb_flux(wb_v, cls=self)
-  
   def solve(self, annotate=False):
     """ 
     Solve the energy equations, saving enthalpy to model.theta, temperature 
