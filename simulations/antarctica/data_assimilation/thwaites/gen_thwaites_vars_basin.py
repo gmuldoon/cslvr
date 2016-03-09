@@ -38,7 +38,7 @@ model.save_xdmf(model.ff,   'ff')
 model.save_xdmf(model.U_ob, 'U_ob')
 
 
-model.state.close()
+#model.state.close()
 
 
 

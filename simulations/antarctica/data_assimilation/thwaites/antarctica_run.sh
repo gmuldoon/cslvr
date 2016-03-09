@@ -27,8 +27,8 @@ declare -a outfiles=("thwaites_mesh_basin.o" \
 declare -a mins=("10" "60" "5" "m")
 
 #run and time each script
-#for s in $(seq 1 ${#scripts[@]); do
-for s in $(seq 3 4); do
+for s in $(seq 1 ${#scripts[@]}); do
+#for s in $(seq 3 4); do
     echo "Running ${scripts[s-1]}."
     echo "This will take ~${mins[s-1]} minutes."
     start=$(date +%s)
