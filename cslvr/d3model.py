@@ -668,7 +668,7 @@ class D3Model(Model):
       bcs.append(DirichletBC(Q, u, ff, self.GAMMA_U_FLT))  # shelves
     name = '%s extruded %s' % (u.name(), d)
     v    = Function(Q, name=name)
-    solve(a == L, v, bcs, annotate=False)
+    solve(a == L, v, bcs, annotate=False, solver_parameters={'linear_solver':'mumps'})
     print_min_max(u, 'function to be extruded', cls=self)
     print_min_max(v, 'extruded function', cls=self)
     return v

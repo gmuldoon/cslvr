@@ -161,15 +161,15 @@ def tmc_cb_ftn():
   d3model.assign_submesh_variable(Us,   d3model.U3)
   d3model.assign_submesh_variable(Wb,   d3model.W)
   d3model.assign_submesh_variable(Mb,   d3model.Mb)
-  d3model.save_xdmf(Tb,   'Tb')
-  d3model.save_xdmf(Us,   'Us')
-  d3model.save_xdmf(Wb,   'Wb')
-  d3model.save_xdmf(Mb,   'Mb')
+  ##d3model.save_xdmf(Tb,   'Tb')
+  ##d3model.save_xdmf(Us,   'Us')
+  ##d3model.save_xdmf(Wb,   'Wb')
+  ##d3model.save_xdmf(Mb,   'Mb')
 
 # derivative of objective function callback function : 
 def deriv_cb(I, dI, beta):
   d3model.assign_submesh_variable(beta_b, beta)
-  d3model.save_xdmf(beta_b, 'beta_control')
+  ##d3model.save_xdmf(beta_b, 'beta_control')
 
 # post-adjoint-iteration callback function :
 def adj_post_cb_ftn():
@@ -199,13 +199,25 @@ def adj_post_cb_ftn():
   d3model.save_xdmf(beta_b, 'beta_opt')
 
 
-# after every completed adjoining, save the state of these functions :
-adj_save_vars = [d3model.beta,
-                 d3model.U3,
-                 d3model.T,
+## after every completed adjoining, save the state of these functions :
+##adj_save_vars = [d3model.beta,
+##                 d3model.U3,
+##                 d3model.T,
+##                 d3model.W,
+##                 d3model.theta,
+##                 d3model.Mb]
+
+adj_save_vars = [d3model.T,
                  d3model.W,
-                 d3model.theta,
-                 d3model.Mb]
+                 d3model.Fb,
+                 d3model.Mb,
+                 d3model.alpha,
+                 d3model.PE,
+                 d3model.W_int,
+                 d3model.U3,
+                 d3model.p,
+                 d3model.beta,
+                 d3model.theta]
 
 # the initial step saves everything :
 ini_save_vars = adj_save_vars + [d3model.Ubar, d3model.U_ob]

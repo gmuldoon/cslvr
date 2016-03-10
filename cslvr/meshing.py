@@ -23,7 +23,7 @@ from io                import print_text, print_min_max
 from shapely.geometry  import Polygon
 from shapely.geometry  import Point as shapelyPoint
 from shapely.ops       import cascaded_union
-
+import gc
 
 class MeshGenerator(object):
   """
