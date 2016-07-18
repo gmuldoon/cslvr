@@ -634,17 +634,14 @@ class D3Model(Model):
   
   def vert_extrude(self, u, d='up', Q='self'):
     r"""
-    This extrudes a function <u> vertically in the direction <d> = 'up' or
-    'down'.
-    It does this by formulating a variational problem:
+    This extrudes a function *u* vertically in the direction *d* = 'up' or
+    'down'.  It does this by solving a variational problem:
   
-    :Conditions: 
     .. math::
-    \frac{\partial v}{\partial z} = 0
-    
-    v|_b = u
-  
-    and solving.  
+       
+       \frac{\partial v}{\partial z} = 0 \hspace{10mm}
+       v|_b = u
+
     """
     s = "::: extruding function %swards :::" % d
     print_text(s, cls=self)
@@ -666,10 +663,12 @@ class D3Model(Model):
       bcs.append(DirichletBC(Q, u, ff, self.GAMMA_S_FLT))  # shelves
       bcs.append(DirichletBC(Q, u, ff, self.GAMMA_U_GND))  # grounded
       bcs.append(DirichletBC(Q, u, ff, self.GAMMA_U_FLT))  # shelves
-    name = '%s extruded %s' % (u.name(), d)
+    try:
+      name = '%s extruded %s' % (u.name(), d)
+    except AttributeError:
+      name = 'extruded'
     v    = Function(Q, name=name)
-    solve(a == L, v, bcs, annotate=False, solver_parameters={'linear_solver':'mumps'})
-    print_min_max(u, 'function to be extruded', cls=self)
+    solve(a == L, v, bcs, annotate=False)
     print_min_max(v, 'extruded function', cls=self)
     return v
   
@@ -712,15 +711,21 @@ class D3Model(Model):
     :param u: Function representing the model's function space
     :rtype:   Dolfin projection and Function of the vertical average
     """
-    H    = self.S - self.B
-    uhat = self.vert_integrate(u, d='up')
     s = "::: calculating vertical average :::"
     print_text(s, cls=self)
-    ubar = project(uhat/H, self.Q, annotate=False)
-    print_min_max(ubar, 'ubar', cls=self)
-    name = "vertical average of %s" % u.name()
-    ubar.rename(name, '')
+
+    ubar = self.vert_integrate(u, d='up')
     ubar = self.vert_extrude(ubar, d='down')
+    
+    try:
+      name = 'vertical average of %s' % u.name()
+    except AttributeError:
+      name = 'vertical average'
+    ubar.rename(name, '')
+    
+    ubar_v = ubar.vector().array()
+    H_v    = self.S.vector().array() - self.B.vector().array() + DOLFIN_EPS
+    self.assign_variable(ubar, ubar_v / H_v, cls=self)
     return ubar
 
   def strain_rate_tensor(self):

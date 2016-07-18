@@ -83,9 +83,12 @@ class IsotropicMeshRefiner(object):
   """
   In this class, the cells in the mesh are isotropically refined above a 
   a certain proportion of average error.
+
+  Args:
   
-  :param m_0  : Initial unrefined mesh
-  :param U_ex : Representation of the ice sheet as a dolfin expression
+    :m_0:  Initial unrefined mesh
+    :U_ex: Representation of the ice sheet as a dolfin expression
+
   """
   def __init__(self, m_0, U_ex):
     self.mesh = m_0
@@ -95,12 +98,15 @@ class IsotropicMeshRefiner(object):
     """
     Determines which cells that are above a certain error threshold based
     on the diameter of the cells
+  
+    Args:
     
-    :param REFINE_RATIO : Long value between 0 and 1, inclusive, to select 
-                          an error value in a reverse sorted list.  
-                          (i.e. .5 selects the midpoint)
-    :param hmin         : Minimum diameter of the cells
-    :param hmax         : Maximum diameter of the cells
+      :REFINE_RATIO: Long value between 0 and 1, inclusive, to select 
+                     an error value in a reverse sorted list.  
+                     (i.e. .5 selects the midpoint)
+      :hmin:         Minimum diameter of the cells
+      :hmax:         Maximum diameter of the cells
+
     """
     print "refining %.2f%% of max error" % (REFINE_RATIO * 100)
     mesh = self.mesh
@@ -174,11 +180,14 @@ class IsotropicMeshRefiner(object):
     """
     This function writes the refinements to the mesh to msh files and
     extrudes the mesh
+
+    Args:
     
-    :param n_layers:  Number of layers in the mesh
-    :param workspace_path: Path to the location where the refined meshes
-       will be written
-    :param int n_processors: Number of processers utilized in the extrusion
+     :n_layers:       Number of layers in the mesh
+     :workspace_path: Path to the location where the refined meshes
+                      will be written
+     :n_processors:   Number of processers utilized in the extrusion
+
     """
     import os
     layers = str(n_layers + 1)
@@ -207,9 +216,12 @@ class AnisotropicMeshRefiner(object):
   account for the directional nature of the velocity field.  In order to 
   accomplish this, Gauss-Steidl iterations are used to approximately solve
   the elasticity problem with computed edge errors as 'spring constants'.
+
+  Args:
   
-  :param m_0  : Initial unrefined mesh
-  :param U_ex : Representation of the ice sheet as a Dolfin expression
+    :m_0:  Initial unrefined mesh
+    :U_ex: Representation of the ice sheet as a Dolfin expression
+
   """
   
   def __init__(self, m_0, U_ex):
@@ -219,10 +231,12 @@ class AnisotropicMeshRefiner(object):
   def weighted_smoothing(self, edge_errors, omega=0.1):
     """
     Smooths the points contained within the mesh
+
+    Args:
     
-    :param edge_errors : Dolfin edge function containing the calculated
-                         edge errors of the mesh
-    :param omega       : Weighting factor used to refine the mesh
+      :edge_errors:  Dolfin edge function containing the calculated
+                     edge errors of the mesh
+      :omega:        Weighting factor used to refine the mesh
     """
     mesh  = self.mesh
     coord = mesh.coordinates()
@@ -283,6 +297,7 @@ class AnisotropicMeshRefiner(object):
     Calculates the error estimates of the expression projected into the mesh.
     
     :rtype: Dolfin edge function containing the edge errors of the mesh
+
     """
     mesh  = self.mesh
     coord = mesh.coordinates()
@@ -428,11 +443,14 @@ class AnisotropicMeshRefiner(object):
     """
     This function writes the refinements to the mesh to msh files and
     extrudes the mesh
+
+    Args:
     
-    :param n_layers:  Number of layers in the mesh
-    :param workspace_path: Path to the location where the refined meshes
-       will be written
-    :param int n_processors: Number of processers utilized in the extrusion
+      :n_layers:       Number of layers in the mesh
+      :workspace_path: Path to the location where the refined meshes
+                       will be written
+      :n_processors:   Number of processers utilized in the extrusion
+
     """
     import os
     layers = str(n_layers + 1)
@@ -459,9 +477,12 @@ def write_gmsh(mesh,path):
   """
   This function iterates through the mesh and writes a file to the specified
   path
+
+  Args:
   
-  :param mesh: Mesh that is to be written to a file
-  :param path: Path to write the mesh file to
+    :mesh: Mesh that is to be written to a file
+    :path: Path to write the mesh file to
+
   """
   output = open(path,'w')
   
@@ -508,12 +529,18 @@ def extract_boundary_mesh(mesh,surface_facet,marker,variable_list = []):
   This function iterates through the cells and vertces of the mesh in order
   to find the boundaries
 
-  :param mesh: The dolfin mesh for which to find the boundaries
-  :param int marker: Cell marker to determine the surface facets
-  :param variable_list: A list of variables corrisponding to the mesh
-  :rtype: Dolfin boundary mesh containing information on the surface of the
-     mesh and a list of surface variables derived from the variable_list 
-     parameter
+  Args:
+
+    :mesh:          The dolfin mesh for which to find the boundaries
+    :marker:        Cell marker to determine the surface facets
+    :variable_list: A list of variables corrisponding to the mesh
+ 
+  Returns:
+  
+    :rtype: FEniCS boundary mesh containing information on the surface of the
+            mesh and a list of surface variables derived from the variable_list 
+            parameter.
+
   """
   from dolfin import vertices
 
@@ -598,11 +625,17 @@ def extract_boundary_mesh(mesh,surface_facet,marker,variable_list = []):
 def generate_expression_from_gridded_data(x,y,var,kx=1,ky=1):
   """
   This function creates a dolfin 2D expression from data input
+
+  Args:
   
-  :param x: List of x coordinates
-  :param y: List of y coordinates
-  :param var: List of values associated with each x and y coordinate pair
-  :rtype: A dolfin Expression object representing the data
+    :x:   List of x coordinates
+    :y:   List of y coordinates
+    :var: List of values associated with each x and y coordinate pair
+
+  Returns:
+
+    :rtype: A dolfin Expression object representing the data
+
   """
   from scipy.interpolate import RectBivariateSpline
   interpolant = RectBivariateSpline(x,y,var.T,kx=kx,ky=ky)
@@ -615,23 +648,22 @@ def generate_expression_from_gridded_data(x,y,var,kx=1,ky=1):
 
 def extrude(f, b, d, ff, Q):
   r"""
-  This extrudes a function <f> defined along a boundary <b> out onto
-  the domain in the direction <d>.  It does this by formulating a 
-  variational problem:
-
-  :Conditions: 
+  This extrudes a function *u* vertically in the direction *d* = 'up' or
+  'down'.  It does this by solving a variational problem:
+  
   .. math::
-  \frac{\partial u}{\partial d} = 0
-  
-  u|_b = f
+     
+     \frac{\partial v}{\partial z} = 0 \hspace{10mm}
+     v|_b = u
 
-  and solving.  
+  Args:
   
-  :param f  : Dolfin function defined along a boundary
-  :param b  : Boundary condition
-  :param d  : Subdomain over which to perform differentiation
-  :param ff : Subdomain FacetFunction 
-  :param Q  : FunctionSpace of domain
+    :f:  Dolfin function defined along a boundary
+    :b:  Boundary condition
+    :d:  Subdomain over which to perform differentiation
+    :ff: Subdomain FacetFunction 
+    :Q:  FunctionSpace of domain
+
   """
   # define test and trial based on function space :
   phi = TestFunction(Q)
@@ -750,54 +782,72 @@ def plot_variable(u, name, direc, cmap='gist_yarg', scale='lin', numLvls=12,
   plt.close(fig)
 
 
-def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
-            umin=None, umax=None, numLvls=12, levels=None, tp=False,
-            tpAlpha=0.5, basin=None, extend='neither',
-            show=True, ext='.png', res=150, cb_format='%.1e',
-            zoom_box=False, zoom_box_kwargs=None):
+def plotIce(di, u, name, direc, 
+            u2               = None,
+            u2_levels        = None,
+            u2_color         = 'k',
+            title            = '',
+            cmap             = 'gist_yarg',
+            scale            = 'lin',
+            umin             = None,
+            umax             = None,
+            numLvls          = 12,
+            levels           = None,
+            levels_2         = None,
+            tp               = False,
+            tpAlpha          = 0.5,
+            contour_type     = 'filled',
+            params           = None,
+            extend           = 'neither',
+            show             = True,
+            ext              = '.png',
+            res              = 150,
+            cb               = True,
+            cb_format        = '%.1e',
+            zoom_box         = False,
+            zoom_box_kwargs  = None,
+            plot_pts         = None,
+            plot_continent   = False,
+            cont_plot_params = None,
+            box_params       = None):
   """
-  INPUTS :
-    di :
-      DataInput object with desired projection
-    u :
-      solution to plot; can be either a function on a 2D mesh, or a string 
-      key to matrix variable in <di>.data.
-    name :
-      title of the plot, latex accepted
-    direc :
-      directory string location to save image.
-    cmap :
-      colormap to use - see images directory for sample and name
-    scale :
-      scale to plot, either 'log', 'lin', or 'bool'
-    numLvls :
-      number of levels for field values
-    levels :
-      manual levels, if desired.
-    tp :
-      boolean determins plotting of triangle overlay
-    tpAlpha :
-      alpha level of triangles 0.0 (transparent) - 1.0 (opaque)
-    extends :
-      for the colorbar, extend upper range and may be ["neither", "both", "min", "max"]
-      default is "neither".
-  # for plotting the zoom-box, make <zoom_box> = True and supply dict
-  <zoom_box_kwargs> = {'zoom'             : int     # ammount to zoom 
-                       'loc'              : int     # location of box
-                       'loc1'             : int     # loc of first line
-                       'loc2'             : int     # loc of second line
-                       'x1'               : float   # first x-coord
-                       'y1'               : float   # first y-coord
-                       'x2'               : float   # second x-coord
-                       'y2'               : float   # second y-coord
-                       'scale_font_color' : str     # scale font color
-                       'scale_length'     : int     # scale length in km
-                       'scale_loc'        : int     # 1=top, 2=bottom
-                       'plot_grid'        : bool    # plot the triangles
+  Args:
+
+    :di:      DataInput object with desired projection
+    :u:       solution to plot; can be either a function on a 2D mesh, or a
+              string key to matrix variable in <di>.data.
+    :name:    title of the plot, latex accepted
+    :direc:   directory string location to save image.
+    :cmap:    colormap to use - see images directory for sample and name
+    :scale:   scale to plot, either 'log', 'lin', or 'bool'
+    :numLvls: number of levels for field values
+    :levels:  manual levels, if desired.
+    :tp:      boolean determins plotting of triangle overlay
+    :tpAlpha: alpha level of triangles 0.0 (transparent) - 1.0 (opaque)
+    :extends: for the colorbar, extend upper range and may be ["neither",
+              "both", "min", "max"]. default is "neither".
+
+    for plotting the zoom-box, make <zoom_box> = True and supply dict
+    *zoom_box_kwargs* with parameters
+    
+    :zoom:             ammount to zoom 
+    :loc:              location of box
+    :loc1:             loc of first line
+    :loc2:             loc of second line
+    :x1:               first x-coord
+    :y1:               first y-coord
+    :x2:               second x-coord
+    :y2:               second y-coord
+    :scale_font_color: scale font color
+    :scale_length:     scale length in km
+    :scale_loc:        1=top, 2=bottom
+    :plot_grid:        plot the triangles
+    :axes_color:       color of axes
+    :plot_points:      dict of points to plot
   
-  OUTPUT :
+  Returns:
  
-    A sigle <direcc><name>.pdf in the source directory.
+    A sigle *direc/name.ext* in the source directory.
   
   """
   # get the original projection coordinates and data :
@@ -834,69 +884,49 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
     sys.exit(1)
   
   # Antarctica :
-  if cont == 'antarctica':
-    w   = 5513335.22665
-    h   = 4602848.6605
-    fig = plt.figure(figsize=(14,10))
-    ax  = fig.add_subplot(111)
-    
-    # new projection :
-    m = Basemap(ax=ax, width=w, height=h, resolution='h', 
-                projection='stere', lat_ts=-71, 
-                lon_0=0, lat_0=-90)
+  if params is None:
+    if cont is 'antarctica':
+      w   = 5513335.22665
+      h   = 4602848.6605
+      fig = plt.figure(figsize=(14,10))
+      ax  = fig.add_subplot(111)
 
-    offset = 0.015 * (m.ymax - m.ymin)
-   
-    # draw lat/lon grid lines every 5 degrees.
-    # labels = [left,right,top,bottom]
-    m.drawmeridians(np.arange(0, 360, 20.0),
-                    color = 'black',
-                    labels = [True, False, True, True])
-    m.drawparallels(np.arange(-90, 90, 5.0), 
-                    color = 'black', 
-                    labels = [True, False, True, True])
-    m.drawmapscale(-130, -68, 0, -90, 400, 
-                   yoffset  = offset, 
-                   barstyle = 'fancy')
- 
-  # Greenland : 
-  elif cont == 'greenland':
-    if basin == 'jakobshavn':
-      w     = 350000
-      h     = 200000
-      lon_0 = -46.6
-      lat_0 = 69.25
-      fig   = plt.figure(figsize=(14,7))
-      ax    = fig.add_subplot(111)
+      lon_0 = 0
+      lat_0 = -90
       
       # new projection :
       m = Basemap(ax=ax, width=w, height=h, resolution='h', 
-                  projection='stere', lat_ts=lat_0, 
+                  projection='stere', lat_ts=-71, 
                   lon_0=lon_0, lat_0=lat_0)
 
       offset = 0.015 * (m.ymax - m.ymin)
-      
-      # draw lat/lon grid lines every degree.
+     
+      # draw lat/lon grid lines every 5 degrees.
       # labels = [left,right,top,bottom]
-      m.drawmeridians(np.arange(0, 360, 2.0),
+      m.drawmeridians(np.arange(0, 360, 20.0),
                       color = 'black',
-                      labels = [False, False, False, True])
-      m.drawparallels(np.arange(65, 71, 0.5), 
+                      labels = [True, False, True, True])
+      m.drawparallels(np.arange(-90, 90, 5.0), 
                       color = 'black', 
-                      labels = [True, False, True, False])
-      m.drawmapscale(-44.5, 68.5, lon_0, lat_0, 100, 
+                      labels = [True, False, True, True])
+      m.drawmapscale(-130, -68, 0, -90, 400, 
                      yoffset  = offset, 
                      barstyle = 'fancy')
-    else:
+ 
+    # Greenland : 
+    elif cont is 'greenland':
       w   = 1532453.49654
       h   = 2644074.78236
       fig = plt.figure(figsize=(8,11.5))
       ax  = fig.add_subplot(111)
+    
+      lon_0 = -41.5
+      lat_0 = 71
       
       # new projection :
       m = Basemap(ax=ax, width=w, height=h, resolution='h', 
                   projection='stere', lat_ts=71, 
-                  lon_0=-41.5, lat_0=71)
+                  lon_0=lon_0, lat_0=lat_0)
 
       offset = 0.015 * (m.ymax - m.ymin)
       
@@ -911,6 +941,70 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
       m.drawmapscale(-34, 60.5, -41.5, 71, 400, 
                      yoffset  = offset, 
                      barstyle = 'fancy')
+    
+  elif type(params) is dict:
+    llcrnrlat      = params['llcrnrlat']
+    urcrnrlat      = params['urcrnrlat']
+    llcrnrlon      = params['llcrnrlon']
+    urcrnrlon      = params['urcrnrlon']
+    scale_color    = params['scale_color']
+    scale_length   = params['scale_length']
+    scale_loc      = params['scale_loc']
+    figsize        = params['figsize']
+    lat_interval   = params['lat_interval']
+    lon_interval   = params['lon_interval']
+    plot_grid      = params['plot_grid']
+    plot_scale     = params['plot_scale']
+    axes_color     = params['axes_color']
+
+
+    dlon = (urcrnrlon - llcrnrlon) / 2.0
+    dlat = (urcrnrlat - llcrnrlat) / 2.0
+    lon_0 = llcrnrlon + dlon
+    lat_0 = llcrnrlat + dlat
+
+    fig   = plt.figure(figsize=figsize)
+    ax    = fig.add_subplot(111)
+    
+    # new projection :
+    m = Basemap(ax=ax, llcrnrlat=llcrnrlat, urcrnrlat=urcrnrlat,
+                llcrnrlon=llcrnrlon, urcrnrlon=urcrnrlon, resolution='h', 
+                projection='stere', lon_0=lon_0, lat_0=lat_0)
+
+    offset = 0.015 * (m.ymax - m.ymin)
+    
+    # draw lat/lon grid lines every degree.
+    # labels = [left,right,top,bottom]
+    if plot_grid:
+      m.drawmeridians(np.arange(0, 360, lon_interval),
+                      color = 'black',
+                      labels = [False, False, False, True])
+      m.drawparallels(np.arange(-90, 90, lat_interval), 
+                      color = 'black', 
+                      labels = [True, False, False, False])
+
+    if scale_loc == 1:
+      fact = 1.8
+    elif scale_loc == 2:
+      fact = 0.2
+
+    if plot_scale :
+      dx         = (m.xmax - m.xmin)/2.0 
+      dy         = (m.ymax - m.ymin)/2.0 
+      xmid       = m.xmin + dx
+      ymid       = m.ymin + fact*dy
+      slon, slat = m(xmid, ymid, inverse=True)
+      m.drawmapscale(slon, slat, slon, slat, scale_length, 
+                     barstyle = 'fancy', fontcolor=scale_color)
+
+    for axis in ['top','bottom','left','right']:
+      ax.spines[axis].set_color(axes_color)
+      
+  else:
+    s = ">>> plotIce REQUIRES A 'dict' OF SPECIFIC PARAMETERS FOR 'custom' <<<"
+    print_text(s, 'red', 1)
+    sys.exit(1)
+
 
   # convert to new projection coordinates from lon,lat :
   x, y  = m(lon, lat)
@@ -920,6 +1014,31 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
   #m.bluemarble()
   #m.etopo()
   
+  if plot_continent:
+    if cont is 'greenland':
+      llcrnrlat  = 57
+      urcrnrlat  = 80.1
+      llcrnrlon  = -57
+      urcrnrlon  = 15
+          
+      axcont = inset_locator.inset_axes(ax, **cont_plot_params)
+      axcont.xaxis.set_ticks_position('none')
+      axcont.yaxis.set_ticks_position('none')
+    
+      # continent projection :
+      mc = Basemap(ax=axcont, llcrnrlat=llcrnrlat, urcrnrlat=urcrnrlat,
+                   llcrnrlon=llcrnrlon, urcrnrlon=urcrnrlon, resolution='c', 
+                   projection='stere', lon_0=lon_0, lat_0=lat_0)
+    
+      mc.drawcoastlines(linewidth=0.5, color='black')
+  
+      x_c, y_c  = mc(lon, lat)
+
+      v_cont = v.copy()
+      v_cont[:] = 1.0
+      
+      axcont.tricontourf(x_c, y_c, fi, v_cont, cmap=pl.get_cmap('Reds'))
+
 
   #=============================================================================
   # plotting :
@@ -977,18 +1096,27 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
     loc               = zoom_box_kwargs['loc']
     loc1              = zoom_box_kwargs['loc1']
     loc2              = zoom_box_kwargs['loc2']
-    x1                = zoom_box_kwargs['x1']
-    y1                = zoom_box_kwargs['y1']
-    x2                = zoom_box_kwargs['x2']
-    y2                = zoom_box_kwargs['y2']
+    llcrnrlat         = zoom_box_kwargs['llcrnrlat']
+    urcrnrlat         = zoom_box_kwargs['urcrnrlat']
+    llcrnrlon         = zoom_box_kwargs['llcrnrlon']
+    urcrnrlon         = zoom_box_kwargs['urcrnrlon']
+    plot_zoom_scale   = zoom_box_kwargs['plot_zoom_scale']
     scale_font_color  = zoom_box_kwargs['scale_font_color']
     scale_length      = zoom_box_kwargs['scale_length']
     scale_loc         = zoom_box_kwargs['scale_loc']
     plot_grid         = zoom_box_kwargs['plot_grid']
+    axes_color        = zoom_box_kwargs['axes_color']
+    zb_plot_pts       = zoom_box_kwargs['plot_points']
+    
+    x1, y1 = m(llcrnrlon, llcrnrlat)
+    x2, y2 = m(urcrnrlon, urcrnrlat)
 
     axins = inset_locator.zoomed_inset_axes(ax, zoom, loc=loc)
     inset_locator.mark_inset(ax, axins, loc1=loc1, loc2=loc2,
-                             fc="none", ec="0.5")
+                             fc="none", ec=axes_color)
+    for axis in ['top','bottom','left','right']:
+      axins.spines[axis].set_color(axes_color)
+      #axins.spines[axis].set_linewidth(2)
 
     if scale_loc == 1:
       fact = 1.8
@@ -1006,9 +1134,12 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
                  projection='stere', lat_ts=lat_0, 
                  lon_0=lon_0, lat_0=lat_0)
 
-    mn.drawmapscale(slon, slat, slon, slat, scale_length, 
-                    yoffset  = 0.025 * 2.0 * dy,
-                    barstyle = 'fancy', fontcolor=scale_font_color)
+    if plot_zoom_scale:
+      mn.drawmapscale(slon, slat, slon, slat, scale_length, 
+                      yoffset  = 0.025 * 2.0 * dy,
+                      barstyle = 'fancy', fontcolor=scale_font_color)
+  
+    mn.drawcoastlines(linewidth=0.5, color = 'black')
     
     axins.set_xlim(x1, x2)
     axins.set_ylim(y1, y2)
@@ -1019,41 +1150,93 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
 
   if isinstance(u, str):
     #cs = ax.pcolor(x, y, v, cmap=get_cmap(cmap), norm=norm)
-    if scale != 'log':
+    if contour_type == 'filled':
       cs = ax.contourf(x, y, v, levels=levels, 
                         cmap=cmap, norm=norm, extend=extend)
       if zoom_box:
         axins.contourf(x, y, v, levels=levels, 
                        cmap=cmap, norm=norm, extend=extend)
-    else:
-      cs = ax.contourf(x, y, v, levels=levels, 
-                       cmap=cmap, norm=norm)
+    if contour_type == 'lines':
+      cs = ax.contour(x, y, v, levels=levels, colors='k') 
+      for line in cs.collections:
+        if line.get_linestyle() != [(None, None)]:
+          line.set_linestyle([(None, None)])
+          line.set_color('red')
+          line.set_linewidth(1.5)
+      if levels_2 is not None:
+        cs2 = ax.contour(x, y, v, levels=levels_2, colors='k') 
+        for line in cs2.collections:
+          if line.get_linestyle() != [(None, None)]:
+            line.set_linestyle([(None, None)])
+            line.set_color('#c1000e')
+            line.set_linewidth(0.5)
+      ax.clabel(cs, inline=1, colors='k', fmt='%i')
       if zoom_box:
-        axins.contourf(x, y, v, levels=levels, 
-                       cmap=cmap, norm=norm)
+        axins.contour(x, y, v, levels=levels, colors='k') 
   
   elif isinstance(u, Function) \
     or isinstance(u, dolfin.functions.function.Function):
     #cs = ax.tripcolor(x, y, fi, v, shading='gouraud', 
     #                  cmap=get_cmap(cmap), norm=norm)
-    if scale != 'log':
+    if contour_type == 'filled':
       cs = ax.tricontourf(x, y, fi, v, levels=levels, 
                          cmap=cmap, norm=norm, extend=extend)
       if zoom_box:
         axins.tricontourf(x, y, fi, v, levels=levels, 
                           cmap=cmap, norm=norm, extend=extend)
-        x_w = 63550
-        y_w = 89748
-        axins.plot(x_w, y_w, 'co')
-    else:
-      cs = ax.tricontourf(x, y, fi, v, levels=levels, 
-                          cmap=cmap, norm=norm)
+    elif contour_type == 'lines':
+      cs = ax.tricontour(x, y, fi, v, linewidths=2.0,
+                         levels=levels, colors='k') 
+      for line in cs.collections:
+        if line.get_linestyle() != [(None, None)]:
+          line.set_linestyle([(None, None)])
+          line.set_color('red')
+          line.set_linewidth(1.5)
+      if levels_2 is not None:
+        cs2 = ax.tricontour(x, y, fi, v, levels=levels_2, colors='0.30') 
+        for line in cs2.collections:
+          if line.get_linestyle() != [(None, None)]:
+            line.set_linestyle([(None, None)])
+            line.set_color('#c1000e')
+            line.set_linewidth(0.5)
+      ax.clabel(cs, inline=1, colors='k', fmt='%i')
       if zoom_box:
-        axins.tricontourf(x, y, fi, v, levels=levels, 
-                          cmap=cmap, norm=norm)
-        x_w = 63550
-        y_w = 89748
-        axins.plot(x_w, y_w, 'co')
+        axins.tricontour(x, y, fi, v, levels=levels, colors='k')
+        axins.clabel(cs, inline=1, colors='k', fmt='%1.2f')
+
+  if u2 is not None:
+    v2 = u2.compute_vertex_values(mesh)
+    csu2 = ax.tricontour(x, y, fi, v2, linewidths=1.5,
+                         levels=u2_levels, colors=u2_color) 
+    #for line in csu2.collections:
+    #  if line.get_linestyle() != [(None, None)]:
+    #    line.set_linestyle([(None, None)])
+
+  if plot_pts is not None:
+    lat_a = plot_pts['lat']
+    lon_a = plot_pts['lon']
+    sty_a = plot_pts['style']
+    clr_a = plot_pts['color']
+    for lat_i, lon_i, sty_i, clr_i in zip(lat_a, lon_a, sty_a, clr_a):
+      x_i, y_i = m(lon_i, lat_i)
+      ax.plot(x_i, y_i, color=clr_i, marker=sty_i)
+
+  if box_params is not None:
+    x1,y1   = m(box_params['llcrnrlon'], box_params['llcrnrlat'])
+    x2,y2   = m(box_params['urcrnrlon'], box_params['urcrnrlat'])
+    box_x_s = [x1,x2,x2,x1,x1]
+    box_y_s = [y1,y1,y2,y2,y1]
+    ax.plot(box_x_s, box_y_s, '-', lw=1.0, color=box_params['color'])
+
+  if zoom_box:
+    if zb_plot_pts is not None:
+      lat_a = zb_plot_pts['lat']
+      lon_a = zb_plot_pts['lon']
+      sty_a = zb_plot_pts['style']
+      clr_a = zb_plot_pts['color']
+      for lat_i, lon_i, sty_i, clr_i in zip(lat_a, lon_a, sty_a, clr_a):
+        x_i, y_i = m(lon_i, lat_i)
+        axins.plot(x_i, y_i, color=clr_i, marker=sty_i)
   
   # plot triangles :
   if tp == True:
@@ -1062,7 +1245,7 @@ def plotIce(di, u, name, direc, title='', cmap='gist_yarg',  scale='lin',
     tpaxins = axins.triplot(x, y, fi, 'k-', lw=0.2, alpha=tpAlpha)
 
   # include colorbar :
-  if scale != 'bool':
+  if cb and scale != 'bool':
     divider = make_axes_locatable(ax)#plt.gca())
     cax  = divider.append_axes("right", "5%", pad="3%")
     cbar = fig.colorbar(cs, cax=cax, #format=formatter, 

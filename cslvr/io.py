@@ -5,8 +5,7 @@ from pylab             import array, linspace, ones, isnan, all, zeros, \
 from fenics            import interpolate, Expression, Function, \
                               vertices, FunctionSpace, RectangleMesh, \
                               MPI, mpi_comm_world, GenericVector, parameters, \
-                              File
-from dolfin_adjoint    import *
+                              File, Constant
 from pyproj            import Proj, transform
 from colored           import fg, attr
 
@@ -532,8 +531,8 @@ def print_min_max(u, title, color='97', cls=None):
   """
   Print the minimum and maximum values of <u>, a Vector, Function, or array.
   """
-  if cls is not None:
-    color = cls.color()
+  #if cls is not None:
+  #  color = cls.color()
   if isinstance(u, GenericVector):
     uMin = MPI.min(mpi_comm_world(), u.min())
     uMax = MPI.max(mpi_comm_world(), u.max())
@@ -546,8 +545,8 @@ def print_min_max(u, title, color='97', cls=None):
     uMax = MPI.max(mpi_comm_world(), u.max())
     s    = title + ' <min, max> : <%.3e, %.3e>' % (uMin, uMax)
     print_text(s, color)
-  elif isinstance(u, Function) \
-       or isinstance(u, dolfin.functions.function.Function):
+  elif isinstance(u, Function):# \
+    #   or isinstance(u, dolfin.functions.function.Function):
     uMin = MPI.min(mpi_comm_world(), u.vector().min())
     uMax = MPI.max(mpi_comm_world(), u.vector().max())
     s    = title + ' <min, max> : <%.3e, %.3e>' % (uMin, uMax)

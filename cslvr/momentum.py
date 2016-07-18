@@ -23,7 +23,7 @@ class Momentum(Physics):
     instance = Physics.__new__(self, model)
     return instance
   
-  def __init__(self, model, solve_params=None, isothermal=True,
+  def __init__(self, model, solve_params=None,
                linear=False, use_lat_bcs=False, use_pressure_bc=True):
     """
     """
@@ -47,15 +47,14 @@ class Momentum(Physics):
       sys.exit(1)
     
     self.solve_params_s    = deepcopy(solve_params)
-    self.isothermal_s      = isothermal
     self.linear_s          = linear
     self.use_lat_bcs_s     = use_lat_bcs
     self.use_pressure_bc_s = use_pressure_bc
     
-    self.initialize(model, solve_params, isothermal, linear,
+    self.initialize(model, solve_params, linear,
                     use_lat_bcs, use_pressure_bc)
   
-  def initialize(self, model, solve_params=None, isothermal=True,
+  def initialize(self, model, solve_params=None,
                  linear=False, use_lat_bcs=False, use_pressure_bc=True):
     """ 
     Here we set up the problem, and do all of the differentiation and
@@ -77,7 +76,7 @@ class Momentum(Physics):
     print_text(s, '230')
     
     self.initialize(self.model, solve_params=self.solve_params_s,
-                    isothermal=self.isothermal_s, linear=self.linear_s,
+                    linear=self.linear_s,
                     use_lat_bcs=self.use_lat_bcs_s, 
                     use_pressure_bc=self.use_pressure_bc_s)
 
@@ -110,7 +109,7 @@ class Momentum(Physics):
     print_text(s, '230')
 
     self.initialize(self.model, solve_params=mom_params,
-                    isothermal=self.isothermal_s, linear=True,
+                    linear=True,
                     use_lat_bcs=self.use_lat_bcs_s, 
                     use_pressure_bc=self.use_pressure_bc_s)
   
@@ -164,13 +163,13 @@ class Momentum(Physics):
                  'solve_pressure' : True}
     return m_params
   
-  def solve_pressure(self, annotate=True):
+  def solve_pressure(self, annotate=False):
     """
     Solve for the hydrostatic pressure 'p'.
     """
     self.model.solve_hydrostatic_pressure(annotate)
   
-  def solve(self, annotate=True, params=None):
+  def solve(self, annotate=False, params=None):
     """ 
     Perform the Newton solve of the momentum equations 
     """
@@ -217,6 +216,45 @@ class Momentum(Physics):
       
       # unify eta to self.eta :
       model.init_eta(eta_shf.vector() + eta_gnd.vector())
+
+  def viscosity(self, U):
+    """
+    calculates the viscosity saved to self.eta_shf and self.eta_gnd, for
+    floating and grounded ice, respectively.  Uses velocity vector <U> with
+    components u,v,w.  If <linear> == True, form viscosity from model.U3.
+    """
+    s  = "::: forming visosity :::"
+    print_text(s, self.color())
+    model    = self.model
+    n        = model.n
+    A_shf    = model.A_shf
+    A_gnd    = model.A_gnd
+    eps_reg  = model.eps_reg
+    epsdot   = self.effective_strain_rate(U)
+    eta_shf  = 0.5 * A_shf**(-1/n) * (epsdot + eps_reg)**((1-n)/(2*n))
+    eta_gnd  = 0.5 * A_gnd**(-1/n) * (epsdot + eps_reg)**((1-n)/(2*n))
+    return (eta_shf, eta_gnd)
+
+  def calc_q_fric(self):
+    """
+    Solve for the friction heat term stored in model.q_fric.
+    """ 
+    # calculate melt-rate : 
+    s = "::: solving basal friction heat :::"
+    print_text(s, cls=self)
+    
+    model    = self.model
+    u,v,w    = model.U3.split(True)
+
+    beta_v   = model.beta.vector().array()
+    u_v      = u.vector().array()
+    v_v      = v.vector().array()
+    w_v      = w.vector().array()
+    Fb_v     = model.Fb.vector().array()
+
+    q_fric_v = beta_v * (u_v**2 + v_v**2 + (w_v+Fb_v)**2)
+    
+    model.init_q_fric(q_fric_v, cls=self)
     
   def form_obj_ftn(self, integral, kind='log', g1=0.01, g2=1000):
     """
@@ -304,13 +342,12 @@ class Momentum(Physics):
 
   def calc_misfit(self):
     """
-    Calculates the misfit of model and observations, 
+    Calculates and returns the misfit of model and observations, 
 
       D = ||U - U_ob||
 
     over shelves or grounded depending on the paramter <integral> sent to
     the self.form_obj_ftn().
-    Updates model.misfit with D for plotting.
     """
     s   = "::: calculating misfit L-infty norm ||U - U_ob|| over %s :::"
     print_text(s % self.model.boundaries[self.integral], cls=self)
@@ -372,25 +409,43 @@ class Momentum(Physics):
 
     s    = "||U - U_ob|| : %.3E" % D
     print_text(s, '208', 1)
-    model.misfit = D
+    return D
   
   def calc_functionals(self):
     """
     Used to facilitate printing the objective function in adjoint solves.
     """
+    s   = "::: calculating functionals :::"
+    print_text(s, cls=self)
+
+    ftnls = []
+
     R = assemble(self.Rp, annotate=False)
     print_min_max(R, 'R', cls=self)
+    ftnls.append(R)
     
     J = assemble(self.Jp, annotate=False)
     print_min_max(J, 'J', cls=self)
+    ftnls.append(J)
+
     if self.obj_ftn_type == 'log_L2_hybrid':
       J1 = assemble(self.J1, annotate=False)
       print_min_max(J1, 'J1', cls=self)
+      ftnls.append(J1)
       
       J2 = assemble(self.J2, annotate=False)
       print_min_max(J2, 'J2', cls=self)
-      return (R, J, J1, J2)
-    return (R, J)
+      ftnls.append(J2)
+
+    if self.reg_ftn_type == 'TV_Tik_hybrid':
+      R1 = assemble(self.R1p, annotate=False)
+      print_min_max(R1, 'R1', cls=self)
+      ftnls.append(R1)
+      
+      R2 = assemble(self.R2p, annotate=False)
+      print_min_max(R2, 'R2', cls=self)
+      ftnls.append(R2)
+    return ftnls 
     
   def Lagrangian(self):
     """
@@ -505,6 +560,9 @@ class Momentum(Physics):
 
     model = self.model
 
+    # reset entire dolfin-adjoint state :
+    adj_reset()
+
     # starting time :
     t0   = time()
 
@@ -513,13 +571,16 @@ class Momentum(Physics):
     counter = 0 
     
     # functional lists to be populated :
-    global Rs, Js, Ds, J1s, J2s
+    global Rs, Js, Ds, J1s, J2s, R1s, R2s
     Rs     = []
     Js     = []
     Ds     = []
     if self.obj_ftn_type == 'log_L2_hybrid':
       J1s  = []
       J2s  = []
+    if self.reg_ftn_type == 'TV_Tik_hybrid':
+      R1s  = []
+      R2s  = []
    
     # solve the momentum equations with annotation enabled :
     s    = '::: solving momentum forward problem :::'
@@ -573,6 +634,9 @@ class Momentum(Physics):
       if self.obj_ftn_type == 'log_L2_hybrid':
         J1s.append(ftnls[2])
         J2s.append(ftnls[3])
+      if self.reg_ftn_type == 'TV_Tik_hybrid':
+        R1s.append(ftnls[4])
+        R2s.append(ftnls[5])
 
       # call that callback, if you want :
       if adj_callback is not None:
@@ -618,10 +682,6 @@ class Momentum(Physics):
     # make the optimal control parameter available :
     model.assign_variable(control, b_opt, cls=self)
     #Control(control).update(b_opt)  # FIXME: does this work?
-
-    # zero out self.velocity for good convergence for any subsequent solves,
-    # e.g. model.L_curve() :
-    model.assign_variable(self.get_U(), DOLFIN_EPS, cls=self)
     
     # call the post-adjoint callback function if set :
     if post_adj_callback is not None:
@@ -633,16 +693,13 @@ class Momentum(Physics):
     if isinstance(adj_save_vars, list):
       s    = '::: saving variables in list arg adj_save_vars :::'
       print_text(s, cls=self)
-      out_file = model.out_dir + 'hdf5/inverted.h5'
+      out_file = model.out_dir + 'u_opt.h5'
       foutput  = HDF5File(mpi_comm_world(), out_file, 'w')
       
       for var in adj_save_vars:
         model.save_hdf5(var, f=foutput)
       
       foutput.close()
-
-    # reset entire dolfin-adjoint state :
-    adj_reset()
 
     # calculate total time to compute
     tf = time()
@@ -664,9 +721,13 @@ class Momentum(Physics):
       np.savetxt(d + 'time.txt', np.array([tf - t0]))
       np.savetxt(d + 'Rs.txt',   np.array(Rs))
       np.savetxt(d + 'Js.txt',   np.array(Js))
+      np.savetxt(d + 'Ds.txt',   np.array(Ds))
       if self.obj_ftn_type == 'log_L2_hybrid':
         np.savetxt(d + 'J1s.txt',  np.array(J1s))
         np.savetxt(d + 'J2s.txt',  np.array(J2s))
+      if self.reg_ftn_type == 'TV_Tik_hybrid':
+        np.savetxt(d + 'R1s.txt',  np.array(R1s))
+        np.savetxt(d + 'R2s.txt',  np.array(R2s))
 
       fig = plt.figure()
       ax  = fig.add_subplot(111)
@@ -675,7 +736,7 @@ class Momentum(Physics):
       ax.set_xlabel(r'iteration')
       ax.plot(np.array(Js), 'r-', lw=2.0)
       plt.grid()
-      plt.savefig(d + 'J.pdf')
+      plt.savefig(d + 'J.png', dpi=100)
       plt.close(fig)
 
       fig = plt.figure()
@@ -685,7 +746,7 @@ class Momentum(Physics):
       ax.set_xlabel(r'iteration')
       ax.plot(np.array(Rs), 'r-', lw=2.0)
       plt.grid()
-      plt.savefig(d + 'R.pdf')
+      plt.savefig(d + 'R.png', dpi=100)
       plt.close(fig)
 
       fig = plt.figure()
@@ -695,7 +756,7 @@ class Momentum(Physics):
       ax.set_xlabel(r'iteration')
       ax.plot(np.array(Ds), 'r-', lw=2.0)
       plt.grid()
-      plt.savefig(d + 'D.pdf')
+      plt.savefig(d + 'D.png', dpi=100)
       plt.close(fig)
       
       if self.obj_ftn_type == 'log_L2_hybrid':
@@ -707,7 +768,7 @@ class Momentum(Physics):
         ax.set_xlabel(r'iteration')
         ax.plot(np.array(J1s), 'r-', lw=2.0)
         plt.grid()
-        plt.savefig(d + 'J1.pdf')
+        plt.savefig(d + 'J1.png', dpi=100)
         plt.close(fig)
  
         fig = plt.figure()
@@ -717,7 +778,29 @@ class Momentum(Physics):
         ax.set_xlabel(r'iteration')
         ax.plot(np.array(J2s), 'r-', lw=2.0)
         plt.grid()
-        plt.savefig(d + 'J2.pdf')
+        plt.savefig(d + 'J2.png', dpi=100)
+        plt.close(fig)
+      
+      if self.reg_ftn_type == 'TV_Tik_hybrid':
+
+        fig = plt.figure()
+        ax  = fig.add_subplot(111)
+        #ax.set_yscale('log')
+        ax.set_ylabel(r'$\mathscr{R}_{tik}\left( \beta \right)$')
+        ax.set_xlabel(r'iteration')
+        ax.plot(np.array(R1s), 'r-', lw=2.0)
+        plt.grid()
+        plt.savefig(d + 'R1.png', dpi=100)
+        plt.close(fig)
+ 
+        fig = plt.figure()
+        ax  = fig.add_subplot(111)
+        #ax.set_yscale('log')
+        ax.set_ylabel(r'$\mathscr{R}_{TV}\left( \beta \right)$')
+        ax.set_xlabel(r'iteration')
+        ax.plot(np.array(R2s), 'r-', lw=2.0)
+        plt.grid()
+        plt.savefig(d + 'R2.png', dpi=100)
         plt.close(fig)
 
 
