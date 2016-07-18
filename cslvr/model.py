@@ -6,14 +6,25 @@ import numpy              as np
 import matplotlib.pyplot  as plt
 import sys
 import os
-    
+
 
 class Model(object):
   """ 
-  Instance of a 2D flowline ice model that contains geometric and scalar 
-  parameters and supporting functions.  This class does not contain actual 
-  physics but rather the interface to use physics in different simulation 
-  types.
+  The basic model from which each of these inherit :
+   * :class:`~latmodel.LatModel`       - plane strain model
+   * :class:`~hybridmodel.HybridModel` - L1L2 "hybrid" model
+   * :class:`~d1model.D1Model`         - 1D firn model
+   * :class:`~d2model.D2Model`         - 2D model (SSA, SIA, balance velocity)
+   * :class:`~d3model.D3Model`         - 3D model (first-order, full-Stokes)
+
+  Args:
+    :mesh:         the :class:`~fenics.Mesh` instance.
+                         
+    :out_dir:      string location for the output directory, default
+                   ``./results/``.
+
+    :use_periodic: boolean, use periodic boundaries or not, default 
+                   ``False``.
   """
 
   OMEGA_GND   = 0   # internal cells over bedrock
@@ -46,8 +57,7 @@ class Model(object):
   # union :
   boundaries = dict(ext_boundaries, **int_boundaries)
   
-  def __init__(self, mesh, out_dir='./results/',
-               use_periodic=False, **gfs_kwargs):
+  def __init__(self, mesh, out_dir='./results/', use_periodic=False):
     """
     Create and instance of the model.
     """
@@ -68,7 +78,7 @@ class Model(object):
     
     self.generate_constants()
     self.set_mesh(mesh)
-    self.generate_function_spaces(use_periodic, **gfs_kwargs)
+    self.generate_function_spaces(use_periodic)
     self.initialize_variables()
 
   def color(self):
@@ -94,7 +104,7 @@ class Model(object):
     self.kg      = Constant(1.3e-7)
     self.kg.rename('kg', 'grain growth coefficient')
 
-    self.Ec      = Constant(60e3)
+    self.Ec      = Constant(6e4)
     self.Ec.rename('Ec', 'act. energy for water in ice')
 
     self.Eg      = Constant(42.4e3)
@@ -118,10 +128,7 @@ class Model(object):
     self.spy     = Constant(spy)
     self.spy.rename('spy', 'seconds per year')
 
-    self.A0      = Constant(1e-16)
-    self.A0.rename('A0', 'flow rate factor')
-
-    self.rhoi    = Constant(917.0)
+    self.rhoi    = Constant(910.0)
     self.rhoi.rename('rhoi', 'ice density')
 
     self.rhow    = Constant(1000.0)
@@ -175,16 +182,29 @@ class Model(object):
     self.T_w     = Constant(273.15)
     self.T_w.rename('T_w', 'Triple point of water')
 
+    self.a_T_l   = Constant(3.985e-13*spy)
+    self.a_T_l.rename('a_T_l', 'lower bound of flow-rate constant')
+
+    self.a_T_u   = Constant(1.916e3*spy)
+    self.a_T_u.rename('a_T_u', 'upper bound of flow-rate constant')
+
+    self.Q_T_l   = Constant(6e4)
+    self.Q_T_l.rename('Q_T_l', 'lower bound of ice activation energy')
+
+    self.Q_T_u   = Constant(13.9e4)
+    self.Q_T_u.rename('Q_T_u', 'upper bound of ice activation energy')
+
+
   def generate_pbc(self):
     """
-    return a SubDomain of periodic lateral boundaries.
+    return a :class:`fenics.SubDomain` of periodic lateral boundaries.
     """
     raiseNotDefined()
     
   def set_mesh(self, f):
     """
-    Sets the mesh to <f>, either a dolfin.Mesh or .h5 with a mesh file 
-    saved with name 'mesh'.
+    Sets the ``mesh`` instance to *f*, either a :class:`fenics.Mesh` or  ``.h5``
+    file with a mesh saved with name ``mesh``.
     """
     s = "::: setting mesh :::"
     print_text(s, cls=self.this)
@@ -198,15 +218,15 @@ class Model(object):
 
     self.dim   = self.mesh.ufl_cell().topological_dimension()
 
-  def calculate_boundaries(self, mask=None, adot=None):
+  def calculate_boundaries(self):
     """
-    Determines the boundaries of the current model mesh
+    Determines the boundaries of the current ``self.mesh``.
     """
     raiseNotDefined()
   
   def set_out_dir(self, out_dir):
     """
-    Set the output directory to something new.
+    Set the output directory to string *out_dir*.
     """
     self.out_dir = out_dir
     s = "::: output directory changed to '%s' :::" % out_dir
@@ -214,7 +234,13 @@ class Model(object):
 
   def generate_function_spaces(self, use_periodic=False):
     """
-    Generates the finite-element function spaces used by all children of model.
+    Generates the finite-element function spaces used by all children of this
+    :class:`Model`.
+
+    Arg:
+
+      :use_periodic: boolean to use periodic boundaries along lateral boundary.
+
     """
     s = "::: generating fundamental function spaces :::"
     print_text(s, cls=self.this)
@@ -238,8 +264,8 @@ class Model(object):
     print_text(s, cls=self.this)
   
   def init_S(self, S, cls=None):
-    """
-    Set the Function for the surface <S>. 
+    r"""
+    Set surface topography :math:`S` to *S*. 
     """
     if cls is None:
       cls = self.this
@@ -248,8 +274,8 @@ class Model(object):
     self.assign_variable(self.S, S, cls=cls)
 
   def init_B(self, B, cls=None):
-    """
-    Set the Function for the bed <B>.
+    r"""
+    Set bed topography :math:`B` to *B*.
     """
     if cls is None:
       cls = self.this
@@ -258,7 +284,8 @@ class Model(object):
     self.assign_variable(self.B, B, cls=cls)
   
   def init_p(self, p, cls=None):
-    """
+    r"""
+    Set pressure :math:`p` to *p*.
     """
     if cls is None:
       cls = self.this
@@ -267,25 +294,23 @@ class Model(object):
     self.assign_variable(self.p, p, cls=cls)
   
   def init_theta(self, theta, cls=None):
-    """
+    r"""
+    Set internal energy :math:`\theta` to *theta*.
     """
     if cls is None:
       cls = self.this
     s = "::: initializing internal energy :::"
     print_text(s, cls=cls)
     self.assign_variable(self.theta, theta, cls=cls)
-    
-    theta_v  = self.theta.vector().array()
-    T_n_v    = (-146.3 + np.sqrt(146.3**2 + 2*7.253*theta_v)) / 7.253
-    T_v      = T_n_v.copy()
-    Tp_v     = T_n_v.copy()
-
-    # create pressure-adjusted temperature for rate-factor :
-    Tp_v[Tp_v > self.T_w(0)] = self.T_w(0)
-    self.init_Tp(Tp_v, cls=cls)
-    
+    # init pressure-melting temperature thing :
+    theta_v = self.theta.vector().array()
+    T_v     = (-146.3 + np.sqrt(146.3**2 + 2*7.253*theta_v)) / 7.253
+    T_v[T_v > self.T_w(0)] = self.T_w(0)
+    self.init_Tp(T_v, cls=cls)
+  
   def init_theta_app(self, theta_app, cls=None):
-    """
+    r"""
+    Set the internal energy approximation :math:`\theta_{app}` to *theta_app*.
     """
     if cls is None:
       cls = self.this
@@ -294,7 +319,8 @@ class Model(object):
     self.assign_variable(self.theta_app, theta_app, cls=cls)
   
   def init_theta_surface(self, theta_surface, cls=None):
-    """
+    r"""
+    Set the surface internal energy :math:`\theta_S` to *theta_surface*.
     """
     if cls is None:
       cls = self.this
@@ -303,7 +329,8 @@ class Model(object):
     self.assign_variable(self.theta_surface, theta_surface, cls=cls)
   
   def init_theta_float(self, theta_float, cls=None):
-    """
+    r"""
+    Set the floating ice internal energy :math:`\theta_{sea}` to *theta_float*.
     """
     if cls is None:
       cls = self.this
@@ -312,7 +339,8 @@ class Model(object):
     self.assign_variable(self.theta_float, theta_float, cls=cls)
   
   def init_T(self, T, cls=None):
-    """
+    r"""
+    Set temperature :math:`T` to *T*.
     """
     if cls is None:
       cls = self.this
@@ -321,7 +349,8 @@ class Model(object):
     self.assign_variable(self.T, T, cls=cls)
   
   def init_Tp(self, Tp, cls=None):
-    """
+    r"""
+    Set pressure-adjusted temperature :math:`T_p = T + \gamma p` to *Tp*.
     """
     if cls is None:
       cls = self.this
@@ -330,7 +359,8 @@ class Model(object):
     self.assign_variable(self.Tp, Tp, cls=cls)
   
   def init_W(self, W, cls=None):
-    """
+    r"""
+    Set water content :math:`W` to *W*.
     """
     if cls is None:
       cls = self.this
@@ -338,8 +368,19 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.W, W, cls=cls)
   
-  def init_Mb(self, Mb, cls=None):
+  def init_Wc(self, Wc, cls=None):
+    r"""
+    Set maximum observed water content :math:`W_c` to *Wc*.
     """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing maximum water content :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.Wc, Wc, cls=cls)
+  
+  def init_Mb(self, Mb, cls=None):
+    r"""
+    Set basal melting rate :math:`M_b` to *Mb*.
     """
     if cls is None:
       cls = self.this
@@ -348,7 +389,8 @@ class Model(object):
     self.assign_variable(self.Mb, Mb, cls=cls)
   
   def init_adot(self, adot, cls=None):
-    """
+    r"""
+    Set accumulation/ablation :math:`\dot{a}` to *adot*.
     """
     if cls is None:
       cls = self.this
@@ -357,7 +399,8 @@ class Model(object):
     self.assign_variable(self.adot, adot, cls=cls)
   
   def init_beta(self, beta, cls=None):
-    """
+    r"""
+    Set basal traction :math:`\beta` to *beta*.
     """
     if cls is None:
       cls = self.this
@@ -365,37 +408,41 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.beta, beta, cls=cls)
   
-  def init_b(self, b, cls=None):
-    """
+  def init_A(self, A, cls=None):
+    r"""
+    Set rate factor :math:`A` to *A*.
     """
     if cls is None:
       cls = self.this
     s = "::: initializing rate factor over grounded and shelves :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.b, b, cls=cls)
-    self.init_b_shf(b, cls=cls)
-    self.init_b_gnd(b, cls=cls)
+    self.assign_variable(self.A, A, cls=cls)
+    self.init_A_shf(A, cls=cls)
+    self.init_A_gnd(A, cls=cls)
   
-  def init_b_shf(self, b_shf, cls=None):
-    """
+  def init_A_shf(self, A_shf, cls=None):
+    r"""
+    Set overlying shelf rate factor :math:`A |_{sea}` to *A_shf*.
     """
     if cls is None:
       cls = self.this
     s = "::: initializing rate factor over shelves :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.b_shf, b_shf, cls=cls)
+    self.assign_variable(self.A_shf, A_shf, cls=cls)
   
-  def init_b_gnd(self, b_gnd, cls=None):
-    """
+  def init_A_gnd(self, A_gnd, cls=None):
+    r"""
+    Set overlying grounded rate factor :math:`A |_{gnd}` to *A_gnd*.
     """
     if cls is None:
       cls = self.this
     s = "::: initializing rate factor over grounded ice :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.b_gnd, b_gnd, cls=cls)
+    self.assign_variable(self.A_gnd, A_gnd, cls=cls)
     
   def init_E(self, E, cls=None):
-    """
+    r"""
+    Set flow-enhancement factor :math:`E` to *E*.
     """
     if cls is None:
       cls = self.this
@@ -406,7 +453,8 @@ class Model(object):
     self.init_E_gnd(E, cls=cls)
   
   def init_E_shf(self, E_shf, cls=None):
-    """
+    r"""
+    Set overlying shelf flow-enhancement factor :math:`E |_{shf}` to *E_shf*.
     """
     if cls is None:
       cls = self.this
@@ -415,7 +463,8 @@ class Model(object):
     self.assign_variable(self.E_shf, E_shf, cls=cls)
   
   def init_E_gnd(self, E_gnd, cls=None):
-    """
+    r"""
+    Set overlying grounded flow-enhancement factor :math:`E |_{gnd}` to *E_gnd*.
     """
     if cls is None:
       cls = self.this
@@ -424,7 +473,8 @@ class Model(object):
     self.assign_variable(self.E_gnd, E_gnd, cls=cls)
   
   def init_eta(self, eta, cls=None):
-    """
+    r"""
+    Set viscosity :math:`\eta` to *eta*.
     """
     if cls is None:
       cls = self.this
@@ -433,7 +483,8 @@ class Model(object):
     self.assign_variable(self.eta, eta, cls=cls)
   
   def init_etabar(self, etabar, cls=None):
-    """
+    r"""
+    Set vertically averaged viscosity :math:`\bar{\eta}` to *etabar*.
     """
     if cls is None:
       cls = self.this
@@ -442,7 +493,8 @@ class Model(object):
     self.assign_variable(self.etabar, etabar, cls=cls)
   
   def init_ubar(self, ubar, cls=None):
-    """
+    r"""
+    Set vertically averaged x-component of velocity :math:`\bar{u}` to *ubar*.
     """
     if cls is None:
       cls = self.this
@@ -451,7 +503,8 @@ class Model(object):
     self.assign_variable(self.ubar, ubar, cls=cls)
   
   def init_vbar(self, vbar, cls=None):
-    """
+    r"""
+    Set vertically averaged y-component of velocity :math:`\bar{v}` to *vbar*.
     """
     if cls is None:
       cls = self.this
@@ -460,7 +513,8 @@ class Model(object):
     self.assign_variable(self.vbar, vbar, cls=cls)
     
   def init_wbar(self, wbar, cls=None):
-    """
+    r"""
+    Set vertically averaged z-component of velocity :math:`\bar{w}` to *wbar*.
     """
     if cls is None:
       cls = self.this
@@ -469,7 +523,8 @@ class Model(object):
     self.assign_variable(self.wbar, wbar, cls=cls)
   
   def init_T_surface(self, T_s, cls=None):
-    """
+    r"""
+    Set surface temperature :math:`T_S` to *T_s*.
     """
     if cls is None:
       cls = self.this
@@ -478,7 +533,8 @@ class Model(object):
     self.assign_variable(self.T_surface, T_s, cls=cls)
   
   def init_q_geo(self, q_geo, cls=None):
-    """
+    r"""
+    Set geothermal heat flux :math:`q_{geo}` to *q_geo*.
     """
     if cls is None:
       cls = self.this
@@ -486,8 +542,41 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.q_geo, q_geo, cls=cls)
   
-  def init_u(self, u, cls=None):
+  def init_q_fric(self, q_fric, cls=None):
+    r"""
+    Set traction heat flux :math:`q_{fric}` to *q_fric*.
     """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing basal friction heat flux :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.q_fric, q_fric, cls=cls)
+  
+  def init_gradT_B(self, gradT_B, cls=None):
+    r"""
+    Set basal temperature gradient 
+    :math:`\left( k \nabla T \right) \cdot \mathbf{n}` to *gradT_B*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing basal temperature flux :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.gradT_B, gradT_B, cls=cls)
+  
+  def init_gradTm_B(self, gradTm_B, cls=None):
+    r"""
+    Set basal temperature melting gradient 
+    :math:`\left( k \nabla T_m \right) \cdot \mathbf{n}` to *gradTm_B*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing basal temperature-melting flux :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.gradTm_B, gradTm_B, cls=cls)
+  
+  def init_u(self, u, cls=None):
+    r"""
+    Set x-component of velocity :math:`u` to *u*.
     """
     if cls is None:
       cls = self.this
@@ -498,7 +587,8 @@ class Model(object):
     self.assx.assign(self.u, u_t, annotate=False)
   
   def init_v(self, v, cls=None):
-    """
+    r"""
+    Set y-component of velocity :math:`v` to *v*.
     """
     if cls is None:
       cls = self.this
@@ -509,7 +599,8 @@ class Model(object):
     self.assx.assign(self.v, v_t, annotate=False)
   
   def init_w(self, w, cls=None):
-    """
+    r"""
+    Set z-component of velocity :math:`w` to *w*.
     """
     if cls is None:
       cls = self.this
@@ -518,34 +609,26 @@ class Model(object):
     w_t = Function(self.Q, name='w_t')
     self.assign_variable(w_t, w, cls=cls)
     self.assx.assign(self.w, w_t, annotate=False)
-  
-  def init_vbar(self, vbar, cls=None):
-    """
-    """
-    if cls is None:
-      cls = self.this
-    s = "::: initializing vertically averaged y-component of velocity :::"
-    print_text(s, cls=cls)
-    self.assign_variable(self.vbar, vbar, cls=cls)
-    
-  def init_wbar(self, wbar, cls=None):
-    """
-    """
-    if cls is None:
-      cls = self.this
-    s = "::: initializing vertically averaged z-component of velocity :::"
-    print_text(s, cls=cls)
-    self.assign_variable(self.wbar, wbar, cls=cls)
 
   def init_U(self, U, cls=None):
-    """
+    r"""
+    Set velocity vector :math:`\mathbf{u}` to *U*.
     """
     if cls is None:
       cls = self.this
     s = "::: initializing velocity :::"
     print_text(s, cls=cls)
     self.assign_variable(self.U3, U, cls=cls)
-    u,v,w    = self.U3.split(True)
+    # fenics issue #405 bug workaround :
+    if self.use_periodic_boundaries:
+      u      = Function(self.Q)
+      v      = Function(self.Q)
+      w      = Function(self.Q)
+      assign(u, self.U3.sub(0))
+      assign(v, self.U3.sub(1))
+      assign(w, self.U3.sub(2))
+    else:
+      u,v,w  = self.U3.split(True)
     u_v      = u.vector().array()
     v_v      = v.vector().array()
     w_v      = w.vector().array()
@@ -553,7 +636,9 @@ class Model(object):
     self.assign_variable(self.U_mag, U_mag_v, cls=cls)
   
   def init_U_ob(self, u_ob, v_ob, cls=None):
-    """
+    r"""
+    Set horizontal velocity observation vector :math:`\mathbf{u}_{ob}`
+    to *U_ob*.
     """
     if cls is None:
       cls = self.this
@@ -567,7 +652,8 @@ class Model(object):
     self.assign_variable(self.U_ob, U_mag_v, cls=cls)
   
   def init_Ubar(self, Ubar, cls=None):
-    """
+    r"""
+    Set balance velocity :math:`\Vert \bar{\mathbf{u}} \Vert` to *Ubar*.
     """
     if cls is None:
       cls = self.this
@@ -576,7 +662,8 @@ class Model(object):
     self.assign_variable(self.Ubar, Ubar, cls=cls)
   
   def init_u_lat(self, u_lat, cls=None):
-    """
+    r"""
+    Set x-component of lateral velocity :math:`u_D` to *u_lat*.
     """
     if cls is None:
       cls = self.this
@@ -585,7 +672,8 @@ class Model(object):
     self.assign_variable(self.u_lat, u_lat, cls=cls)
   
   def init_v_lat(self, v_lat, cls=None):
-    """
+    r"""
+    Set y-component of lateral velocity :math:`v_D` to *v_lat*.
     """
     if cls is None:
       cls = self.this
@@ -594,7 +682,8 @@ class Model(object):
     self.assign_variable(self.v_lat, v_lat, cls=cls)
   
   def init_w_lat(self, w_lat, cls=None):
-    """
+    r"""
+    Set z-component of lateral velocity :math:`w_D` to *w_lat*.
     """
     if cls is None:
       cls = self.this
@@ -603,7 +692,8 @@ class Model(object):
     self.assign_variable(self.w_lat, w_lat, cls=cls)
   
   def init_mask(self, mask, cls=None):
-    """
+    r"""
+    Set shelf mask :math:`M` to *M*.
     """
     if cls is None:
       cls = self.this
@@ -614,7 +704,8 @@ class Model(object):
     self.gnd_dofs = np.where(self.mask.vector().array() == 1.0)[0]
   
   def init_U_mask(self, U_mask, cls=None):
-    """
+    r"""
+    Set velocity observation mask :math:`M_{\mathbf{u}}` to *U_mask*.
     """
     if cls is None:
       cls = self.this
@@ -625,7 +716,8 @@ class Model(object):
     self.Uob_missing_dofs = np.where(self.U_mask.vector().array() == 0.0)[0]
   
   def init_lat_mask(self, lat_mask, cls=None):
-    """
+    r"""
+    Set lateral boundary mask :math:`M_D` to *lat_mask*.
     """
     if cls is None:
       cls = self.this
@@ -634,7 +726,8 @@ class Model(object):
     self.assign_variable(self.lat_mask, lat_mask, cls=cls)
   
   def init_d_x(self, d_x, cls=None):
-    """
+    r"""
+    Set x-component of normalized driving-stress :math:`d_x` to *d_x*.
     """
     if cls is None:
       cls = self.this
@@ -643,7 +736,8 @@ class Model(object):
     self.assign_variable(self.d_x, d_x, cls=cls)
   
   def init_d_y(self, d_y, cls=None):
-    """
+    r"""
+    Set y-component of normalized driving-stress :math:`d_y` to *d_y*.
     """
     if cls is None:
       cls = self.this
@@ -652,7 +746,8 @@ class Model(object):
     self.assign_variable(self.d_y, d_y, cls=cls)
   
   def init_time_step(self, dt, cls=None):
-    """
+    r"""
+    Set time step :math:`\Delta t` to *dt*.
     """
     if cls is None:
       cls = self.this
@@ -661,7 +756,8 @@ class Model(object):
     self.assign_variable(self.time_step, dt, cls=cls)
   
   def init_lat(self, lat, cls=None):
-    """
+    r"""
+    Set grid latitude to *lat*.
     """
     if cls is None:
       cls = self.this
@@ -670,7 +766,8 @@ class Model(object):
     self.assign_variable(self.lat, lat, cls=cls)
   
   def init_lon(self, lon, cls=None):
-    """
+    r"""
+    Set grid longitude to *lon*.
     """
     if cls is None:
       cls = self.this
@@ -679,7 +776,9 @@ class Model(object):
     self.assign_variable(self.lon, lon, cls=cls)
   
   def init_tau_id(self, tau_id, cls=None):
-    """
+    r"""
+    Set component of driving stress in the direction of flow
+    :math:`\tau_{id}` to *tau_id*.
     """
     if cls is None:
       cls = self.this
@@ -688,7 +787,9 @@ class Model(object):
     self.assign_variable(self.tau_id, tau_id, cls=cls)
   
   def init_tau_jd(self, tau_jd, cls=None):
-    """
+    r"""
+    Set component of driving stress across the direction of flow
+    :math:`\tau_{jd}` to *tau_jd*.
     """
     if cls is None:
       cls = self.this
@@ -697,7 +798,9 @@ class Model(object):
     self.assign_variable(self.tau_jd, tau_jd, cls=cls)
   
   def init_tau_ib(self, tau_ib, cls=None):
-    """
+    r"""
+    Set component of basal drag in the direction of flow
+    :math:`\tau_{ib}` to *tau_ib*.
     """
     if cls is None:
       cls = self.this
@@ -706,7 +809,9 @@ class Model(object):
     self.assign_variable(self.tau_ib, tau_ib, cls=cls)
   
   def init_tau_jb(self, tau_jb, cls=None):
-    """
+    r"""
+    Set component of basal drag across the direction of flow
+    :math:`\tau_{jb}` to *tau_jb*.
     """
     if cls is None:
       cls = self.this
@@ -715,7 +820,8 @@ class Model(object):
     self.assign_variable(self.tau_jb, tau_jb, cls=cls)
   
   def init_tau_ii(self, tau_ii, cls=None):
-    """
+    r"""
+    Set :math:`\tau_{ii}` to *tau_ii*.
     """
     if cls is None:
       cls = self.this
@@ -724,7 +830,8 @@ class Model(object):
     self.assign_variable(self.tau_ii, tau_ii, cls=cls)
   
   def init_tau_ij(self, tau_ij, cls=None):
-    """
+    r"""
+    Set :math:`\tau_{ij}` to *tau_ij*.
     """
     if cls is None:
       cls = self.this
@@ -732,17 +839,19 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.tau_ij, tau_ij, cls=cls)
   
-  def init_tau_iz(self, tau_iz, cls=None):
-    """
+  def init_tau_ik(self, tau_ik, cls=None):
+    r"""
+    Set :math:`\tau_{ik}` to *tau_ik*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing tau_iz :::"
+    s = "::: initializing tau_ik :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.tau_iz, tau_iz, cls=cls)
+    self.assign_variable(self.tau_ik, tau_ik, cls=cls)
   
   def init_tau_ji(self, tau_ji, cls=None):
-    """
+    r"""
+    Set :math:`\tau_{ji}` to *tau_ji*.
     """
     if cls is None:
       cls = self.this
@@ -751,7 +860,8 @@ class Model(object):
     self.assign_variable(self.tau_ji, tau_ji, cls=cls)
   
   def init_tau_jj(self, tau_jj, cls=None):
-    """
+    r"""
+    Set :math:`\tau_{jj}` to *tau_jj*.
     """
     if cls is None:
       cls = self.this
@@ -759,35 +869,160 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.tau_jj, tau_jj, cls=cls)
   
-  def init_tau_jz(self, tau_jz, cls=None):
-    """
+  def init_tau_jk(self, tau_jk, cls=None):
+    r"""
+    Set :math:`\tau_{jk}` to *tau_jk*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing tau_jz :::"
+    s = "::: initializing tau_jk :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.tau_jz, tau_jz, cls=cls)
+    self.assign_variable(self.tau_jk, tau_jk, cls=cls)
+  
+  def init_tau_ki(self, tau_ki, cls=None):
+    r"""
+    Set :math:`\tau_{ki}` to *tau_ki*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing tau_ki :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.tau_ki, tau_ki, cls=cls)
+  
+  def init_tau_kj(self, tau_kj, cls=None):
+    r"""
+    Set :math:`\tau_{kj}` to *tau_kj*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing tau_kj :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.tau_kj, tau_kj, cls=cls)
+  
+  def init_tau_kk(self, tau_kk, cls=None):
+    r"""
+    Set :math:`\tau_{kk}` to *tau_kk*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing tau_kk :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.tau_kk, tau_kk, cls=cls)
+  
+  def init_N_ii(self, N_ii, cls=None):
+    r"""
+    Set membrane stress :math:`N_{ii}` to *N_ii*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_ii :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_ii, N_ii, cls=cls)
+  
+  def init_N_ij(self, N_ij, cls=None):
+    r"""
+    Set membrane stress :math:`N_{ij}` to *N_ij*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_ij :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_ij, N_ij, cls=cls)
+  
+  def init_N_ik(self, N_ik, cls=None):
+    r"""
+    Set membrane stress :math:`N_{ik}` to *N_ik*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_ik :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_ik, N_ik, cls=cls)
+  
+  def init_N_ji(self, N_ji, cls=None):
+    r"""
+    Set membrane stress :math:`N_{ji}` to *N_ji*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_ji :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_ji, N_ji, cls=cls)
+  
+  def init_N_jj(self, N_jj, cls=None):
+    r"""
+    Set membrane stress :math:`N_{jj}` to *N_jj*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_jj :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_jj, N_jj, cls=cls)
+  
+  def init_N_jk(self, N_jk, cls=None):
+    r"""
+    Set membrane stress :math:`N_{jk}` to *N_jk*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_jk :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_jk, N_jk, cls=cls)
+  
+  def init_N_ki(self, N_ki, cls=None):
+    r"""
+    Set membrane stress :math:`N_{ki}` to *N_ki*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_ki :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_ki, N_ki, cls=cls)
+  
+  def init_N_kj(self, N_kj, cls=None):
+    r"""
+    Set membrane stress :math:`N_{kj}` to *N_kj*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_kj :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_kj, N_kj, cls=cls)
+  
+  def init_N_kk(self, N_kk, cls=None):
+    r"""
+    Set membrane stress :math:`N_{kk}` to *N_kk*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing N_kk :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.N_kk, N_kk, cls=cls)
 
   def init_alpha(self, alpha, cls=None):
-    """
+    r"""
+    Set temperate-zone marking coefficient :math:`\alpha` to *alpha*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing mdot coefficient :::"
+    s = "::: initializing temperate-zone marking coefficient :::"
     print_text(s, cls=cls)
     self.assign_variable(self.alpha, alpha, cls=cls)
 
-  def init_alpha_crit(self, alpha_crit, cls=None):
-    """
+  def init_alpha_int(self, alpha_int, cls=None):
+    r"""
+    Set vertical integral of temperate zone marking coefficient 
+    :math:`\int \alpha dz` to *alpha_int*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing crit-value of mdot coefficient :::"
+    s = "::: initializing temperate-zone thickness :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.alpha_crit, alpha_crit, cls=cls)
+    self.assign_variable(self.alpha_int, alpha_int, cls=cls)
 
   def init_Fb(self, Fb, cls=None):
-    """
+    r"""
+    Set basal water discharge :math:`F_b` to *Fb*.
     """
     if cls is None:
       cls = self.this
@@ -795,17 +1030,39 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.Fb, Fb, cls=cls)
 
-  def init_W_int(self, W_int, cls=None):
-    """
+  def init_Wbar(self, Wbar, cls=None):
+    r"""
+    Set vertically-averaged water contnet :math:`\bar{W}` to *Wbar*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing integral of internal water content :::"
+    s = "::: initializing vertically averaged water content :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.W_int, W_int, cls=cls)
+    self.assign_variable(self.Wbar, Wbar, cls=cls)
+
+  def init_temp_rat(self, temp_rat, cls=None):
+    r"""
+    Set ratio of temperate ice :math:`\frac{1}{H}\int \alpha dz` to *temp_rat*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing temperate zone ratio :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.temp_rat, temp_rat, cls=cls)
+
+  def init_Qbar(self, Qbar, cls=None):
+    r"""
+    Set vertically-averaged strain heat :math:`\bar{Q}` to *Qbar*.
+    """
+    if cls is None:
+      cls = self.this
+    s = "::: initializing vertically averaged strain-heat :::"
+    print_text(s, cls=cls)
+    self.assign_variable(self.Qbar, Qbar, cls=cls)
 
   def init_PE(self, PE, cls=None):
-    """
+    r"""
+    Set Peclet number :math:`P_e` to *PE*.
     """
     if cls is None:
       cls = self.this
@@ -814,7 +1071,8 @@ class Model(object):
     self.assign_variable(self.PE, PE, cls=cls)
 
   def init_n_f(self, n, cls=None):
-    """
+    r"""
+    Set outward-normal vector :math:`\mathbf{n}`` to *n*.
     """
     if cls is None:
       cls = self.this
@@ -822,36 +1080,41 @@ class Model(object):
     print_text(s, cls=cls)
     self.assign_variable(self.n_f, n, cls=cls)
 
-  def init_alpha_bounds(self, alpha_min, alpha_max, cls=None):
-    """
+  def init_Fb_bounds(self, Fb_min, Fb_max, cls=None):
+    r"""
+    Set upper and lower bounds for basal water discharge :math:`F_b^{\max}` 
+    and :math:`F_b^{\min}` to *Fb_max* and *Fb_min*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing bounds for water-optimizing alpha:::"
+    s = "::: initializing bounds for basal water flux Fb :::"
     print_text(s, cls=cls)
-    self.init_alpha_min(alpha_min, cls)
-    self.init_alpha_max(alpha_max, cls)
+    self.init_Fb_min(Fb_min, cls)
+    self.init_Fb_max(Fb_max, cls)
 
-  def init_alpha_min(self, alpha_min, cls=None):
-    """
+  def init_Fb_min(self, Fb_min, cls=None):
+    r"""
+    Set lowere bound of basal water discharge :math:`F_b` to *Fb_min*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing lower bound for water-optimizing alpha:::"
+    s = "::: initializing lower bound for basal water flux Fb :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.alpha_min, alpha_min, cls=cls)
+    self.assign_variable(self.Fb_min, Fb_min, cls=cls)
 
-  def init_alpha_max(self, alpha_max, cls=None):
-    """
+  def init_Fb_max(self, Fb_max, cls=None):
+    r"""
+    Set upper bound of basal water discharge :math:`F_b` to *Fb_max*.
     """
     if cls is None:
       cls = self.this
-    s = "::: initializing upper bound for water-optimizing alpha :::"
+    s = "::: initializing upper bound for basal water flux Fb :::"
     print_text(s, cls=cls)
-    self.assign_variable(self.alpha_max, alpha_max, cls=cls)
+    self.assign_variable(self.Fb_max, Fb_max, cls=cls)
 
   def init_k_0(self, k_0, cls=None):
-    """
+    r"""
+    Set non-advective water flux coefficient :math:`k_0` to *k_0*.
     """
     if cls is None:
       cls = self.this
@@ -861,12 +1124,19 @@ class Model(object):
 
   def init_beta_SIA(self, U_mag=None, eps=0.5):
     r"""
-    Init beta  :`\tau_b = \tau_d`, the shallow ice approximation, 
-    using the observed surface velocity <U_mag> as approximate basal 
-    velocity and <gradS> the projected surface gradient. i.e.,
+    Init :math:`\beta` from  :math:`\tau_b = \tau_d`, the shallow ice 
+    approximation, using the observed surface velocity *U_mag* as approximate 
+    basal velocity,
 
     .. math::
-    \beta \Vert U_b \Vert H^r = \rho g H \Vert \nabla S \Vert
+
+       \beta \Vert U_b \Vert = \rho g H \Vert \nabla S \Vert
+
+    Args:
+
+      :U_mag: basal velocity magnitude.
+
+      :eps:   minimum velocity, default is 0.5 m/a.
     
     """
     s = "::: initializing beta from SIA :::"
@@ -903,12 +1173,19 @@ class Model(object):
       
   def init_beta_SIA_new_slide(self, U_mag=None, eps=0.5):
     r"""
-    Init beta  :`\tau_b = \tau_d`, the shallow ice approximation, 
-    using the observed surface velocity <U_mag> as approximate basal 
-    velocity and <gradS> the projected surface gradient. i.e.,
+    Init :math:`\beta` from  :math:`\tau_b = \tau_d`, the shallow ice 
+    approximation, using the observed surface velocity *U_mag* as approximate 
+    basal velocity,
 
     .. math::
-    \beta \Vert U_b \Vert H^r = \rho g H \Vert \nabla S \Vert
+
+       \beta \Vert U_b \Vert = \rho g H \Vert \nabla S \Vert
+
+    Args:
+
+      :U_mag: basal velocity magnitude.
+
+      :eps:   minimum velocity, default is 0.5 m/a.
     
     """
     s = "::: initializing new sliding beta from SIA :::"
@@ -1315,29 +1592,56 @@ class Model(object):
     b_f = Function(Q)
     solve(lhs(R) == rhs(R), b_f, annotate=False)
     self.assign_variable(b, b_f, cls=self.this)
+
+  def form_energy_dependent_rate_factor(self):
+    """
+    formulates energy-dependent rate factor A.
+    """
+    s = "::: formulating energy-dependent rate-factor :::"
+    print_text(s, cls=self.this)
+    #theta_c = 146.3*T_c + 7.253/2.0*T_c**2
+    #theta_w = 0.01*L + theta_m
+    #W_w     = (theta - theta_m)/L
+    #T_w     = (-146.3 + sqrt(146.3**2 + 2*7.253*theta)) / 7.253
+      
+    # discontinuous properties :
+    #a_T     = conditional( lt(theta, theta_c), 1.1384496e-5, 5.45e10)
+    #Q_T     = conditional( lt(theta, theta_c), 6e4,          13.9e4)
+    #W_T     = conditional( lt(theta, theta_w), W_w,          0.01)
+    #W_c     = conditional( le(theta, theta_m), 0.0,          1.0)
+    #W_a     = conditional( le(theta, theta_m), 0.0,          W_w)
+
+    # viscosity and strain-heating :
+    #b_shf   = ( E_shf*a_T*(1 + 181.25*W_c*W_T)*exp(-Q_T/(R*Tp)) )**(-1/n)
+    #b_gnd   = ( E_gnd*a_T*(1 + 181.25*W_c*W_T)*exp(-Q_T/(R*Tp)) )**(-1/n)
+    #eta_shf = 0.5 * b_shf * epsdot**((1-n)/(2*n))
+    #eta_gnd = 0.5 * b_gnd * epsdot**((1-n)/(2*n))
+    #Q_s_gnd = 4 * eta_gnd * epsdot
+    #Q_s_shf = 4 * eta_shf * epsdot
+    #Tp      = T + gamma*p
+    Tp          = self.Tp
+    W           = self.W
+    R           = self.R
+    E_shf       = self.E_shf
+    E_gnd       = self.E_gnd
+    a_T         = conditional( lt(Tp, 263.15),  self.a_T_l, self.a_T_u)
+    Q_T         = conditional( lt(Tp, 263.15),  self.Q_T_l, self.Q_T_u)
+    W_T         = conditional( lt(W,  0.01),    W,          0.01)
+    self.A_shf  = E_shf*a_T*(1 + 181.25*W_T)*exp(-Q_T/(R*Tp))
+    self.A_gnd  = E_gnd*a_T*(1 + 181.25*W_T)*exp(-Q_T/(R*Tp))
  
-  def calc_eta(self, epsdot_ftn):
+  def calc_eta(self, epsdot):
     """
     Calculates viscosity, set to model.eta.
     """
     s     = "::: calculating viscosity :::"
     print_text(s, cls=self.this)
     Q       = self.Q
-    R       = self.R
-    T       = self.T
-    W       = self.W
-    n       = self.n
     eps_reg = self.eps_reg
-    E_shf   = self.E_shf
-    E_gnd   = self.E_gnd
-    E       = self.E
-
-    # effective strain-rate squared :
-    epsdot  = epsdot_ftn(self.U3)
-
+    A       = self.A
+    n       = self.n
+    
     # manually calculate a_T and Q_T to avoid oscillations with 'conditional' :
-    a_T    = conditional( lt(T, 263.15), 1.1384496e-5, 5.45e10)
-    Q_T    = conditional( lt(T, 263.15), 6e4,          13.9e4)
     #a_T     = Function(Q, name='a_T')
     #Q_T     = Function(Q, name='Q_T')
     #T_v     = T.vector().array()
@@ -1351,18 +1655,26 @@ class Model(object):
     #self.assign_variable(Q_T, Q_T_v, cls=self.this)
 
     # unify the enhancement factor over shelves and grounded ice : 
-    E                  = self.E
+    #E                  = self.E
     #E_v                = E.vector().array()
     #E_gnd_v            = E_gnd.vector().array()
     #E_shf_v            = E_shf.vector().array()
     #E_v[self.gnd_dofs] = E_gnd_v[self.gnd_dofs]
     #E_v[self.shf_dofs] = E_shf_v[self.shf_dofs]
     #self.assign_variable(E, E_v, cls=self.this)
+    
+    Tp          = self.Tp
+    W           = self.W
+    R           = self.R
+    E           = self.E
+    a_T         = conditional( lt(Tp, 263.15),  self.a_T_l, self.a_T_u)
+    Q_T         = conditional( lt(Tp, 263.15),  self.Q_T_l, self.Q_T_u)
+    W_T         = conditional( lt(W,  0.01),    W,          0.01)
+    A           = E*a_T*(1 + 181.25*W_T)*exp(-Q_T/(R*Tp))
 
     # calculate viscosity :
-    b       = ( E*a_T*(1 + 181.25*W)*exp(-Q_T/(R*T)) )**(-1/n)
-    eta     = 0.5 * b * (epsdot + eps_reg)**((1-n)/(2*n))
-    eta     = project(eta, Q, annotate=False)
+    eta     = 0.5 * A**(-1/n) * (epsdot + eps_reg)**((1-n)/(2*n))
+    eta     = project(eta, annotate=False)
     self.init_eta(eta)
 
   def calc_vert_average(self, u):
@@ -1403,29 +1715,67 @@ class Model(object):
     
     self.init_n_f(n, cls=cls)
 
-  def get_theta(self):
+  def get_xy_velocity_angle(self):
     """
     Returns the angle in radians of the horizontal velocity vector from 
     the x-axis.
     """
-    u_v     = self.u.vector().array()
-    v_v     = self.v.vector().array()
+    u,v,w   = self.U3.split(True)
+    u_v     = u.vector().array()
+    v_v     = v.vector().array()
     theta_v = np.arctan2(u_v, v_v)
-    theta   = Function(self.Q, name='theta_U_angle')
+    theta   = Function(self.Q, name='theta_xy_U_angle')
     self.assign_variable(theta, theta_v, cls=self.this)
     return theta
 
-  def rotate(self, M, theta):
+  def get_xz_velocity_angle(self):
     """
-    rotate the tensor <M> about the z axes by angle <theta>.
+    Returns the angle in radians of the vertical velocity vector from 
+    the x-axis.
+    """
+    u,v,w   = self.U3.split(True)
+    u_v     = u.vector().array()
+    w_v     = w.vector().array()
+    theta_v = np.arctan2(u_v, w_v)
+    theta   = Function(self.Q, name='theta_xz_U_angle')
+    self.assign_variable(theta, theta_v, cls=self.this)
+    return theta
+
+  def z_rotation_matrix(self, theta):
+    """
+    get rotation matrix about the z axes by angle <theta>.
     """
     c  = cos(theta)
     s  = sin(theta)
     Rz = as_matrix([[c, -s, 0],
                     [s,  c, 0],
                     [0,  0, 1]])
-    R  = dot(Rz, dot(M, Rz.T))
-    return R
+    return Rz
+
+  def y_rotation_matrix(self, theta):
+    """
+    get rotation matrix about the y axes by angle <theta>.
+    """
+    c  = cos(theta)
+    s  = sin(theta)
+    Ry = as_matrix([[ c, 0, s],
+                    [ 0, 1, 0],
+                    [-s, 0, c]])
+    return Ry
+
+  def rotate_tensor(self, M, R):
+    """
+    rotate the tnesor <M> by the rotation matrix <R>.
+    """
+    if M.rank() == 2:
+      Mr = dot(R, dot(M, R.T))
+    elif M.rank() == 1:
+      Mr = dot(R, M)
+    else:
+      s   = ">>> METHOD 'rotate_tensor' REQUIRES RANK 2 OR 1 TENSOR <<<"
+      print_text(s, 'red', 1)
+      sys.exit(1)
+    return Mr
 
   def get_norm(self, U, type='l2'):
     """
@@ -1451,6 +1801,9 @@ class Model(object):
     """
     Create a normalized vector of the UFL vector <U>.
     """
+    s   = "::: normalizing vector :::"
+    print_text(s, cls=self.this)
+
     if type(Q) != FunctionSpace:
       Q = self.Q
 
@@ -1529,9 +1882,9 @@ class Model(object):
 
   def save_hdf5(self, u, f, name=None):
     """
-    Save a FEniCS Function <u> to <f> h5 file to the hdf5 subdirectory of 
-    self.out_dir.
-    If <name>=None, this will save the flie under <u>.name().
+    Save a :class:`~fenics.Function` *u* to *f* .h5 file in the hdf5 
+    subdirectory of ``self.out_dir``.  If *name* = ``None``, this will 
+    save the flie under ``u.name()``.
     """
     if name == None:
       name = u.name()
@@ -1659,9 +2012,9 @@ class Model(object):
     self.E             = Function(self.Q, name='E')
     self.E_gnd         = Function(self.Q, name='E_gnd')
     self.E_shf         = Function(self.Q, name='E_shf')
-    self.b             = Function(self.Q, name='b')
-    self.b_gnd         = Function(self.Q, name='b_gnd')
-    self.b_shf         = Function(self.Q, name='b_shf')
+    self.A             = Function(self.Q, name='A')
+    self.A_gnd         = Function(self.Q, name='A_gnd')
+    self.A_shf         = Function(self.Q, name='A_shf')
     self.u_lat         = Function(self.Q, name='u_lat')
     self.v_lat         = Function(self.Q, name='v_lat')
     self.w_lat         = Function(self.Q, name='w_lat')
@@ -1671,26 +2024,30 @@ class Model(object):
     self.T             = Function(self.Q, name='T')
     self.Tp            = Function(self.Q, name='Tp')
     self.q_geo         = Function(self.Q, name='q_geo')
+    self.q_fric        = Function(self.Q, name='q_fric')
+    self.gradT_B       = Function(self.Q, name='gradT_B')
+    self.gradTm_B      = Function(self.Q, name='gradTm_B')
     self.theta         = Function(self.Q, name='theta')
     self.W             = Function(self.Q, name='W')
+    self.Wc            = Function(self.Q, name='Wc')
     self.Mb            = Function(self.Q, name='Mb')
     self.rhob          = Function(self.Q, name='rhob')
     self.T_melt        = Function(self.Q, name='T_melt')     # pressure-melting
     self.theta_melt    = Function(self.Q, name='theta_melt') # pressure-melting
     self.T_surface     = Function(self.Q, name='T_surface')
     self.alpha         = Function(self.Q, name='alpha')
-    self.alpha_crit    = Function(self.Q, name='alpha_crit')
+    self.alpha_int     = Function(self.Q, name='alpha_int')
     self.Fb            = Function(self.Q, name='Fb')
     self.PE            = Function(self.Q, name='PE')
-    self.W_int         = Function(self.Q, name='W_int')
-    self.alpha_min     = Function(self.Q, name='alpha_min')
-    self.alpha_max     = Function(self.Q, name='alpha_max')
+    self.Wbar          = Function(self.Q, name='Wbar')
+    self.Fb_min        = Function(self.Q, name='Fb_min')
+    self.Fb_max        = Function(self.Q, name='Fb_max')
+    self.Qbar          = Function(self.Q, name='Qbar')
+    self.temp_rat      = Function(self.Q, name='temp_rat')
     self.k_0           = Constant(1.0,    name='k_0')
     self.k_0.rename('k_0', 'k_0')
     
     # adjoint model :
-    self.adj_f         = 0.0              # objective function value at end
-    self.misfit        = 0.0              # ||U - U_ob||
     self.control_opt   = Function(self.Q, name='control_opt')
 
     # balance Velocity model :
@@ -1714,15 +2071,122 @@ class Model(object):
     self.tau_jp        = Function(self.Q, name='tau_jp')
     self.tau_ii        = Function(self.Q, name='tau_ii')
     self.tau_ij        = Function(self.Q, name='tau_ij')
+    self.tau_ik        = Function(self.Q, name='tau_ik')
     self.tau_ji        = Function(self.Q, name='tau_ji')
     self.tau_jj        = Function(self.Q, name='tau_jj')
+    self.tau_jk        = Function(self.Q, name='tau_jk')
+    self.tau_ki        = Function(self.Q, name='tau_ki')
+    self.tau_kj        = Function(self.Q, name='tau_kj')
+    self.tau_kk        = Function(self.Q, name='tau_kk')
+    self.N_ii          = Function(self.Q, name='N_ii')
+    self.N_ij          = Function(self.Q, name='N_ij')
+    self.N_ik          = Function(self.Q, name='N_ik')
+    self.N_ji          = Function(self.Q, name='N_ji')
+    self.N_jj          = Function(self.Q, name='N_jj')
+    self.N_jk          = Function(self.Q, name='N_jk')
+    self.N_ki          = Function(self.Q, name='N_ki')
+    self.N_kj          = Function(self.Q, name='N_kj')
+    self.N_kk          = Function(self.Q, name='N_kk')
+
+  def home_rolled_newton_method(self, R, U, J, bcs, atol=1e-7, rtol=1e-10,
+                                relaxation_param=1.0, max_iter=25,
+                                method='cg', preconditioner='amg',
+                                cb_ftn=None):
+    """
+    Appy Newton's method.
+
+    Args:
+     
+      :R:                residual of system
+      :U:                unknown to determine
+      :J:                Jacobian
+      :bcs:              set of Dirichlet boundary conditions
+      :atol:             absolute stopping tolerance
+      :rtol:             relative stopping tolerance
+      :relaxation_param: ratio of down-gradient step to take each iteration.
+      :max_iter:         maximum number of iterations to perform
+      :method:           linear solution method
+      :preconditioner:   preconditioning method to use with ``Krylov`` solver
+      :cb_ftn:           at the end of each iteration, this is called
+    """
+    converged  = False
+    lmbda      = relaxation_param   # relaxation parameter
+    nIter      = 0                  # number of iterations
+   
+    # need to homogenize the boundary, as the residual is always zero over
+    # essential boundaries :
+    bcs_u = []
+    for bc in bcs:
+      bc = DirichletBC(bc)
+      bc.homogenize()
+      bcs_u.append(bc)
+    
+    # the direction of decent :
+    d = Function(U.function_space()) 
+    
+    while not converged and nIter < max_iter:
+      # assemble system :
+      A, b    = assemble_system(J, -R, bcs_u)
+      
+      # determine step direction :
+      solve(A, d.vector(), b, method, preconditioner, annotate=False)
+    
+      # calculate residual :
+      residual  = b.norm('l2')
+    
+      # set initial residual : 
+      if nIter == 0:
+        residual_0 = residual
+
+      # the relative residual :
+      rel_res = residual/residual_0
+
+      # check for convergence :
+      converged = residual < atol or rel_res < rtol
+      
+      # move U down the gradient :
+      U.vector()[:] += lmbda*d.vector()
+      
+      # increment counter :
+      nIter += 1
+    
+      # print info to screen :
+      if self.MPI_rank == 0:
+        string = "Newton iteration %d: r (abs) = %.3e (tol = %.3e) " \
+                 +"r (rel) = %.3e (tol = %.3e)"
+        print string % (nIter, residual, atol, rel_res, rtol)
+
+      # call the callback function, if desired :
+      if cb_ftn is not None:
+        s    = "::: calling home-rolled Newton method callback :::"
+        print_text(s, cls=self.this)
+        cb_ftn()
 
   def thermo_solve(self, momentum, energy, wop_kwargs,
                    callback=None, atol=1e2, rtol=1e0, max_iter=50,
-                   itr_tmc_save_vars=None, post_tmc_save_vars=None,
+                   iter_save_vars=None, post_tmc_save_vars=None,
                    starting_i=1):
-    """ 
+    r""" 
     Perform thermo-mechanical coupling between momentum and energy.
+
+    Args:
+
+      :momentum:       a :class:`~momentum.Momentum` instance
+      :energy:         a :class:`~energy.Energy` instance.  Currently this only 
+                       works for :class:`~energy.Enthalpy`
+      :wop_kwargs:     a :py:class:`~dict` of arguments for water-optimization 
+                       method :func:`~energy.Energy.optimize_water_flux`
+      :callback:       a function that is called back at the end of each 
+                       iteration
+      :atol:           absolute stopping tolerance 
+                       :math:`a_{tol} \leq r = \Vert \theta_n - \theta_{n-1} \Vert`
+      :rtol:           relative stopping tolerance
+                       :math:`r_{tol} \leq \Vert r_n - r_{n-1} \Vert`
+      :max_iter:       maximum number of iterations to perform
+      :iter_save_vars: python :py:class:`~list` containing functions to 
+                       save each iteration
+      :starting_i:     if you are restarting this process, you may start 
+                       it at a later iteration. 
     """
     s    = '::: performing thermo-mechanical coupling with atol = %.2e, ' + \
            'rtol = %.2e, and max_iter = %i :::'
@@ -1776,10 +2240,11 @@ class Model(object):
     ## convert to pseudo-timestepping for smooth convergence : 
     #energy.make_transient(time_step = 25.0)
 
-    ## get the bounds, the max will be updated based on areas of refreeze :
-    #bounds = wop_kwargs['bounds']
-    #if bounds[1] > 1.0:
-    #  self.init_alpha_min(bounds[0], cls=self.this)
+    # get the bounds of Fb, the max will be updated based on temperate zones :
+    bounds = copy(wop_kwargs['bounds'])
+    self.init_Fb_min(bounds[0], cls=self.this)
+    self.init_Fb_max(bounds[1], cls=self.this)
+    wop_kwargs['bounds']  = (self.Fb_min, self.Fb_max)
 
     # L_2 erro norm between iterations :
     abs_error = np.inf
@@ -1802,20 +2267,35 @@ class Model(object):
       out_dir_n = 'tmc/%0*d/' % (n_i, counter)
       self.set_out_dir(out_dir_i + out_dir_n)
       
-      # need zero initial guess for Newton solve to converge : 
-      self.assign_variable(momentum.get_U(),  DOLFIN_EPS, cls=self.this)
-     
       # solve velocity :
       momentum.solve(annotate=False)
 
-      # first update pressure-melting point :
+      # update pressure-melting point :
       energy.calc_T_melt(annotate=False)
-      energy.solve_basal_melt_rate()
 
-      # solve energy (temperature, water content) :
+      # calculate basal friction heat flux :
+      momentum.calc_q_fric()
+
+      # solve energy steady-state equations to derive temperate zone :
+      energy.derive_temperate_zone(annotate=False)
+      
+      # fixed-point interation for thermal parameters and discontinuous 
+      # properties :
+      energy.update_thermal_parameters(annotate=False)
+  
+      # update bounds based on temperate zone :
+      Fb_m_v                 = self.Fb_max.vector().array()
+      alpha_v                = self.alpha.vector().array()
+      Fb_m_v[:]              = DOLFIN_EPS
+      Fb_m_v[alpha_v == 1.0] = bounds[1]
+      self.init_Fb_max(Fb_m_v, cls=self.this)
+
+      # optimize the flux of water to remove abnormally high water :
       energy.optimize_water_flux(**wop_kwargs)
-      energy.partition_energy()
-
+      
+      # calculate T, Tp, and W from theta :
+      energy.partition_energy(annotate=False)
+      
       # calculate L_2 norms :
       abs_error_n  = norm(U_prev.vector() - self.theta.vector(), 'l2')
       tht_nrm      = norm(self.theta.vector(), 'l2')
@@ -1841,7 +2321,8 @@ class Model(object):
       # print info to screen :
       if self.MPI_rank == 0:
         s0    = '>>> '
-        s1    = 'fixed-point iteration %i (max %i) done: ' % (counter, max_iter)
+        s1    = 'TMC fixed-point iteration %i (max %i) done: ' \
+                 % (counter, max_iter)
         s2    = 'r (abs) = %.2e ' % abs_error
         s3    = '(tol %.2e), '    % atol
         s4    = 'r (rel) = %.2e ' % rel_error
@@ -1868,17 +2349,20 @@ class Model(object):
         callback()
     
       # save state to unique hdf5 file :
-      if isinstance(itr_tmc_save_vars, list):
-        s    = '::: saving variables in list arg itr_tmc_save_vars :::'
+      if isinstance(iter_save_vars, list):
+        s    = '::: saving variables in list arg iter_save_vars :::'
         print_text(s, cls=self.this)
         out_file = self.out_dir + 'tmc.h5'
         foutput  = HDF5File(mpi_comm_world(), out_file, 'w')
-        for var in itr_tmc_save_vars:
+        for var in iter_save_vars:
           self.save_hdf5(var, f=foutput)
         foutput.close()
     
     # reset the base directory ! :
     self.set_out_dir(out_dir_i)
+    
+    # reset the bounds on Fb :
+    wop_kwargs['bounds']  = bounds
       
     # save state to unique hdf5 file :
     if isinstance(post_tmc_save_vars, list):
@@ -1916,7 +2400,7 @@ class Model(object):
       ax.set_xlabel(r'iteration')
       ax.plot(err_a, 'k-', lw=2.0)
       plt.grid()
-      plt.savefig(d_hist + 'abs_err.pdf')
+      plt.savefig(d_hist + 'abs_err.png', dpi=100)
       plt.close(fig)
       
       # plot theta norm :
@@ -1926,39 +2410,52 @@ class Model(object):
       ax.set_xlabel(r'iteration')
       ax.plot(nrm_a, 'k-', lw=2.0)
       plt.grid()
-      plt.savefig(d_hist + 'theta_norm.pdf')
+      plt.savefig(d_hist + 'theta_norm.png', dpi=100)
       plt.close(fig)
 
-  def assimilate_U_ob(self, iterations, tmc_kwargs, uop_kwargs,
+  def assimilate_U_ob(self, momentum, beta_i, max_iter, 
+                      tmc_kwargs, uop_kwargs,
+                      atol                = 1e2,
+                      rtol                = 1e0, 
                       initialize          = True,
                       incomplete          = True,
-                      ini_save_vars       = None,
                       post_iter_save_vars = None,
                       post_ini_callback   = None,
                       starting_i          = 1):
     """
     """
-    s    = '::: performing assimilation process with %i iterations :::'
-    print_text(s % iterations, cls=self.this)
-
-    # need the physics instances :
-    momentum = tmc_kwargs['momentum']
-    energy   = tmc_kwargs['energy']
+    s    = '::: performing assimilation process with %i max iterations :::'
+    print_text(s % max_iter, cls=self.this)
 
     # retain base install directory :
     out_dir_i = self.out_dir
+    
+    # directory for saving convergence history :
+    d_hist   = self.out_dir + 'convergence_history/'
+    if not os.path.exists(d_hist) and self.MPI_rank == 0:
+      os.makedirs(d_hist)
 
     # number of digits for saving variables :
-    n_i  = len(str(iterations))
+    n_i  = len(str(max_iter))
     
     # starting time :
     t0   = time()
-
+    
+    # L_2 erro norm between iterations :
+    abs_error = np.inf
+    rel_error = np.inf
+      
     # number of iterations, from a starting point (useful for restarts) :
     if starting_i <= 1:
       counter = 1
     else:
       counter = starting_i
+
+    # initialize friction field :
+    self.init_beta(beta_i, cls=self.this)
+   
+    # previous friction for norm calculation :
+    beta_prev    = self.beta.copy(True)
 
     # perform initialization step if desired :
     if initialize:
@@ -1979,78 +2476,132 @@ class Model(object):
         print_text(s, cls=self.this)
         post_ini_callback()
 
-      # save state to numbered hdf5 file :
-      if isinstance(ini_save_vars, list):
-        s    = '::: saving initialized variables in dict arg ini_save_vars :::'
-        print_text(s, cls=self.this)
-        out_file = self.out_dir + 'init.h5'
-        foutput  = HDF5File(mpi_comm_world(), out_file, 'w')
-        
-        for var in ini_save_vars:
-          self.save_hdf5(var, f=foutput)
-        
-        foutput.close()
-    
     # otherwise, tell us that we are not initializing :
     else:
       s    = '    - skipping initialization step -'
       print_text(s, cls=self.this)
+    
+    # save the w_opt bounds on Fb :
+    bounds = copy(tmc_kwargs['wop_kwargs']['bounds'])
 
     # assimilate the data : 
-    while counter <= iterations:
+    while abs_error > atol and rel_error > rtol and counter <= max_iter:
       s    = '::: entering iterate %i of %i of assimilation process :::'
-      print_text(s % (counter, iterations), cls=self.this)
+      print_text(s % (counter, max_iter), cls=self.this)
        
       # set a new unique output directory :
       out_dir_n = '%0*d/' % (n_i, counter)
       self.set_out_dir(out_dir_i + out_dir_n)
    
-      # let us know that we've started the adjoining process : 
-      s    = '::: beginning adjoint-based assimilation process :::'
-      print_text(s, cls=self.this)
-      
       # the incomplete adjoint means the viscosity is linear :
-      if incomplete: momentum.linearize_viscosity()
+      if incomplete and not momentum.linear: momentum.linearize_viscosity()
+    
+      # re-initialize friction field :
+      if counter > starting_i: self.init_beta(beta_i, cls=self.this)
 
       # optimize the velocity : 
       momentum.optimize_U_ob(**uop_kwargs)
 
       # reset the momentum to the original configuration : 
-      if incomplete: momentum.reset()
+      if not momentum.linear_s and momentum.linear: momentum.reset()
 
       # thermo-mechanically couple :
       self.thermo_solve(**tmc_kwargs)
       
-      if self.MPI_rank==0:
+      # calculate L_2 norms :
+      abs_error_n  = norm(beta_prev.vector() - self.beta.vector(), 'l2')
+      beta_nrm     = norm(self.beta.vector(), 'l2')
+
+      # save convergence history :
+      if counter == 1:
+        rel_error  = abs_error_n
+        if self.MPI_rank == 0:
+          err_a = np.array([abs_error_n])
+          nrm_a = np.array([beta_nrm])
+          np.savetxt(d_hist + 'abs_err.txt',   err_a)
+          np.savetxt(d_hist + 'beta_norm.txt', nrm_a)
+      else:
+        rel_error = abs(abs_error - abs_error_n)
+        if self.MPI_rank == 0:
+          err_n = np.loadtxt(d_hist + 'abs_err.txt')
+          nrm_n = np.loadtxt(d_hist + 'beta_norm.txt')
+          err_a = np.append(err_n, np.array([abs_error_n]))
+          nrm_a = np.append(nrm_n, np.array([beta_nrm]))
+          np.savetxt(d_hist + 'abs_err.txt',    err_a)
+          np.savetxt(d_hist + 'beta_norm.txt',  nrm_a)
+
+      # print info to screen :
+      if self.MPI_rank == 0:
         s0    = '>>> '
-        s1    = 'U_ob assimilation iteration %i (max %i) done'
-        s2    = ' <<<'
-        text0 = get_text(s0,                         'red', 1)
-        text1 = get_text(s1 % (counter, iterations), 'red')
-        text2 = get_text(s2,                         'red', 1)
-        print text0 + text1 + text2
-       
+        s1    = 'U_ob assimilation iteration %i (max %i) done: ' \
+                % (counter, max_iter)
+        s2    = 'r (abs) = %.2e ' % abs_error
+        s3    = '(tol %.2e), '    % atol
+        s4    = 'r (rel) = %.2e ' % rel_error
+        s5    = '(tol %.2e)'      % rtol
+        s6    = ' <<<'
+        text0 = get_text(s0, 'red', 1)
+        text1 = get_text(s1, 'red')
+        text2 = get_text(s2, 'red', 1)
+        text3 = get_text(s3, 'red')
+        text4 = get_text(s4, 'red', 1)
+        text5 = get_text(s5, 'red')
+        text6 = get_text(s6, 'red', 1)
+        print text0 + text1 + text2 + text3 + text4 + text5 + text6
+      
       # save state to unique hdf5 file :
       if isinstance(post_iter_save_vars, list):
         s    = '::: saving variables in list arg post_iter_save_vars :::'
         print_text(s, cls=self.this)
-        out_file = self.out_dir + 'inverted_%0*d.h5' % (n_i, counter)
+        out_file = self.out_dir + 'inverted.h5'
         foutput  = HDF5File(mpi_comm_world(), out_file, 'w')
         for var in post_iter_save_vars:
           self.save_hdf5(var, f=foutput)
         foutput.close()
       
-      # increment the counter and move on :
-      counter += 1
+      # update error stuff and increment iteration counter :
+      abs_error    = abs_error_n
+      beta_prev    = self.beta.copy(True)
+      counter     += 1
 
     # calculate total time to compute
-    s = time() - t0
-    m = s / 60.0
-    h = m / 60.0
-    s = s % 60
-    m = m % 60
+    tf = time()
+    s  = tf - t0
+    m  = s / 60.0
+    h  = m / 60.0
+    s  = s % 60
+    m  = m % 60
     text = "time to compute TMC optimized ||u - u_ob||: %02d:%02d:%02d"
     print_text(text % (h,m,s) , 'red', 1)
+       
+    # plot the convergence history : 
+    s    = "::: convergence info saved to \'%s\' :::"
+    print_text(s % d_hist, cls=self.this)
+    if self.MPI_rank == 0:
+      np.savetxt(d_hist + 'time.txt', np.array([tf - t0]))
+
+      err_a = np.loadtxt(d_hist + 'abs_err.txt')
+      nrm_a = np.loadtxt(d_hist + 'beta_norm.txt')
+     
+      # plot iteration error : 
+      fig   = plt.figure()
+      ax    = fig.add_subplot(111)
+      ax.set_ylabel(r'$\Vert \beta_{n-1} - \beta_n \Vert$')
+      ax.set_xlabel(r'iteration')
+      ax.plot(err_a, 'k-', lw=2.0)
+      plt.grid()
+      plt.savefig(d_hist + 'abs_err.png', dpi=100)
+      plt.close(fig)
+      
+      # plot theta norm :
+      fig = plt.figure()
+      ax  = fig.add_subplot(111)
+      ax.set_ylabel(r'$\Vert \beta_n \Vert$')
+      ax.set_xlabel(r'iteration')
+      ax.plot(nrm_a, 'k-', lw=2.0)
+      plt.grid()
+      plt.savefig(d_hist + 'beta_norm.png', dpi=100)
+      plt.close(fig)
 
   def L_curve(self, alphas, physics, control, int_domain, adj_ftn, adj_kwargs,
               reg_kind='Tikhonov', pre_callback=None, post_callback=None,
